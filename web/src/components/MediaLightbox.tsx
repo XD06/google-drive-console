@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fileDownloadUrl, isImagePreviewable, isPdfPreviewable, isVideoPreviewable, type FileItem } from "../lib/api";
-import { IconClose, IconDownload, IconZoomIn, IconZoomOut } from "../lib/icons";
+import { IconChevronLeft, IconChevronRight, IconClose, IconDownload, IconZoomIn, IconZoomOut } from "../lib/icons";
 
 export type MediaPreviewState = {
   id: string;
@@ -15,9 +15,13 @@ export type MediaLightboxProps = {
   preview: MediaPreviewState;
   item: FileItem | null;
   onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 };
 
-export function MediaLightbox({ preview, item, onClose }: MediaLightboxProps) {
+export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev, hasNext }: MediaLightboxProps) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
   const [ty, setTy] = useState(0);
@@ -125,6 +129,106 @@ export function MediaLightbox({ preview, item, onClose }: MediaLightboxProps) {
     }
   }, []);
 
+  // Keyboard: ArrowLeft/Right for prev/next, Escape to close
+  useEffect(() => {
+    if (!preview) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "ArrowLeft" && onPrev && hasPrev) { e.preventDefault(); onPrev(); }
+      if (e.key === "ArrowRight" && onNext && hasNext) { e.preventDefault(); onNext(); }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [preview, onPrev, onNext, hasPrev, hasNext]);
+
+  // Swipe gesture for mobile navigation
+  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onBodyTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      swipeStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+    }
+  }, []);
+  const onBodyTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!swipeStart.current || e.changedTouches.length === 0) return;
+    const dx = e.changedTouches[0].clientX - swipeStart.current.x;
+    const dy = e.changedTouches[0].clientY - swipeStart.current.y;
+    const dt = Date.now() - swipeStart.current.t;
+    swipeStart.current = null;
+    // Only trigger if horizontal swipe > 60px, fast enough (<400ms), and not too vertical
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 400) {
+      if (dx > 0 && onPrev && hasPrev) onPrev();
+      if (dx < 0 && onNext && hasNext) onNext();
+    }
+  }, [onPrev, onNext, hasPrev, hasNext]);
+
+  // Video speed tracker
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoSpeed, setVideoSpeed] = useState<string | null>(null);
+  const speedTracker = useRef<{ lastBytes: number; lastTime: number; timer: ReturnType<typeof setInterval> | null }>({
+    lastBytes: 0, lastTime: 0, timer: null,
+  });
+
+  useEffect(() => {
+    return () => {
+      if (speedTracker.current.timer) clearInterval(speedTracker.current.timer);
+    };
+  }, []);
+
+  const onVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    // Clear old timer
+    if (speedTracker.current.timer) {
+      clearInterval(speedTracker.current.timer);
+      speedTracker.current.timer = null;
+    }
+    setVideoSpeed(null);
+    if (!el) return;
+    speedTracker.current = { lastBytes: 0, lastTime: performance.now(), timer: null };
+    speedTracker.current.timer = setInterval(() => {
+      if (!el.buffered.length) return;
+      // Total buffered bytes estimate: buffered seconds * bitrate
+      const bufferedEnd = el.buffered.end(el.buffered.length - 1);
+      // Fallback: use a byte-based approach via performance entries
+      const now = performance.now();
+      const dt = (now - speedTracker.current.lastTime) / 1000;
+      if (dt < 0.5) return; // update every 500ms
+      const bytesDelta = (bufferedEnd - speedTracker.current.lastBytes) * (el.duration > 0 ? 1 : 0);
+      speedTracker.current.lastTime = now;
+      speedTracker.current.lastBytes = bufferedEnd;
+      // Calculate speed from buffered time progress × estimated bitrate
+      if (el.duration > 0 && dt > 0) {
+        // Use actual downloaded resource size if available
+        const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+        const videoEntry = entries.filter(e => e.name.includes("/download") && e.transferSize > 0).pop();
+        if (videoEntry && videoEntry.transferSize > 0) {
+          // Total transfer / elapsed time from start
+          const elapsed = (now - (videoEntry.startTime + performance.timeOrigin - performance.timeOrigin)) / 1000;
+          if (elapsed > 0) {
+            const bps = videoEntry.transferSize / elapsed;
+            setVideoSpeed(formatSpeed(bps));
+            return;
+          }
+        }
+        // Fallback: estimate from buffered seconds change
+        if (bytesDelta > 0) {
+          // Rough estimate: bitrate × time buffered
+          const estimatedFileSize = el.duration > 0 ? (el.duration * 500000) : 0; // rough 4Mbps
+          const ratio = bytesDelta / el.duration;
+          const speed = ratio * estimatedFileSize / dt;
+          if (speed > 0) setVideoSpeed(formatSpeed(speed));
+        }
+      }
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    // Reset speed when preview changes
+    setVideoSpeed(null);
+    if (speedTracker.current.timer) {
+      clearInterval(speedTracker.current.timer);
+      speedTracker.current.timer = null;
+    }
+  }, [preview?.id]);
+
   if (!preview) return null;
 
   const isImage = item ? isImagePreviewable(item) : false;
@@ -171,11 +275,23 @@ export function MediaLightbox({ preview, item, onClose }: MediaLightboxProps) {
           onMouseMove={isImage ? onMouseMove : undefined}
           onMouseUp={isImage ? onMouseUp : undefined}
           onMouseLeave={isImage ? onMouseUp : undefined}
-          onTouchStart={isImage ? onTouchStart : undefined}
+          onTouchStart={isImage ? onTouchStart : onBodyTouchStart}
           onTouchMove={isImage ? onTouchMove : undefined}
-          onTouchEnd={isImage ? onTouchEnd : undefined}
+          onTouchEnd={isImage ? onTouchEnd : onBodyTouchEnd}
           onTouchCancel={isImage ? onTouchEnd : undefined}
         >
+          {/* Navigation arrows */}
+          {hasPrev && onPrev && (
+            <button type="button" className="lightbox-nav lightbox-nav-prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); onPrev(); }}>
+              <IconChevronLeft size={28} />
+            </button>
+          )}
+          {hasNext && onNext && (
+            <button type="button" className="lightbox-nav lightbox-nav-next" aria-label="Next" onClick={(e) => { e.stopPropagation(); onNext(); }}>
+              <IconChevronRight size={28} />
+            </button>
+          )}
+
           {preview.loading && <div className="lightbox-status">Loading…</div>}
           {preview.error && <div className="lightbox-status is-err">{preview.error}</div>}
           {isImage && preview.url && !preview.loading && (
@@ -192,10 +308,19 @@ export function MediaLightbox({ preview, item, onClose }: MediaLightboxProps) {
             <iframe className="lightbox-pdf" src={fileDownloadUrl(preview.id, item ?? undefined)} title={preview.name} />
           )}
           {isVideo && !preview.loading && (
-            <video className="lightbox-video" src={fileDownloadUrl(preview.id, item ?? undefined)} controls autoPlay />
+            <div className="lightbox-video-wrap">
+              <video ref={onVideoRef} className="lightbox-video" src={fileDownloadUrl(preview.id, item ?? undefined)} controls autoPlay />
+              {videoSpeed && <span className="lightbox-video-speed">{videoSpeed}</span>}
+            </div>
           )}
         </div>
       </div>
     </>
   );
+}
+
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec >= 1024 * 1024) return `${(bytesPerSec / (1024 * 1024)).toFixed(2)} MB/s`;
+  if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+  return `${Math.round(bytesPerSec)} B/s`;
 }

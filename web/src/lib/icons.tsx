@@ -104,6 +104,14 @@ export function IconChevronLeft(p: IconProps) {
   );
 }
 
+export function IconChevronRight(p: IconProps) {
+  return (
+    <Base {...p}>
+      <path d="M9 18l6-6-6-6" />
+    </Base>
+  );
+}
+
 export function IconTrash(p: IconProps) {
   return (
     <Base {...p}>

@@ -1214,6 +1214,31 @@ void loadFiles(folderId);
     return { id: imagePreview.id, name: imagePreview.name, mimeType: "", size: null, modifiedTime: "", isFolder: false } as FileItem;
   }, [imagePreview, items]);
 
+  // Previewable media list for prev/next navigation (same order user sees)
+  const previewableList = useMemo(() => {
+    const source = searchMode ? searchResults : filteredItems;
+    return sortItems(source).filter(
+      (it) => !it.isFolder && (isImagePreviewable(it) || isVideoPreviewable(it) || isPdfPreviewable(it)),
+    );
+  }, [searchMode, searchResults, filteredItems, sortKey, sortDir]);
+
+  const lightboxIndex = useMemo(() => {
+    if (!imagePreview) return -1;
+    return previewableList.findIndex((it) => it.id === imagePreview.id);
+  }, [imagePreview, previewableList]);
+
+  const lightboxHasPrev = lightboxIndex > 0;
+  const lightboxHasNext = lightboxIndex >= 0 && lightboxIndex < previewableList.length - 1;
+
+  function lightboxGoPrev() {
+    if (!lightboxHasPrev) return;
+    void openImageFile(previewableList[lightboxIndex - 1]);
+  }
+  function lightboxGoNext() {
+    if (!lightboxHasNext) return;
+    void openImageFile(previewableList[lightboxIndex + 1]);
+  }
+
   function closeImagePreview() {
     if (imageUrlRef.current) {
       URL.revokeObjectURL(imageUrlRef.current);
@@ -2912,6 +2937,10 @@ void loadFiles(folderId);
             preview={imagePreview}
             item={lightboxItem}
             onClose={closeImagePreview}
+            onPrev={lightboxGoPrev}
+            onNext={lightboxGoNext}
+            hasPrev={lightboxHasPrev}
+            hasNext={lightboxHasNext}
           />
         </Suspense>
       )}
