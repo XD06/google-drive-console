@@ -1,0 +1,42 @@
+# Secrets & local data
+.env
+data/
+*.pem
+client_secret*.json
+
+# Go
+bin/
+dist-server/
+*.exe
+*.test
+coverage.out
+
+# Node / Vite
+web/node_modules/
+web/dist/
+web/.vite/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Project internal tooling
+.data/
+.playwright-cli/
+.superpowers/
+.workbuddy/
+
+# Misc build artifacts
+bench_*.txt
+pw-mock.js
+server.exe
+server.err.log
+tmp-*
+*.pid
+*.out
+*.err
+tsconfig.tsbuildinfo
+web/tsconfig.tsbuildinfo

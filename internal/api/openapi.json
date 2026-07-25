@@ -1,0 +1,213 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Drive Backup Console — Agent API",
+    "version": "1.0.0",
+    "description": "Programmatic file API for AI agents and scripts. Authenticate with an API key via `Authorization: Bearer <token>` (or a browser session cookie for the UI). Read-only keys may call `read` operations; `readwrite` keys may also mutate. Keys act as the site owner against the server-side Google Drive token; scope limits what a key may do, not whose Drive it sees."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+  "tags": [
+    { "name": "files", "description": "Browse and manipulate Drive files and folders" },
+    { "name": "keys", "description": "Manage API keys (session-only; keys cannot manage keys)" },
+    { "name": "meta", "description": "Discovery and account overview" }
+  ],
+  "paths": {
+    "/openapi.json": {
+      "get": {
+        "tags": ["meta"], "summary": "This OpenAPI document", "operationId": "getOpenAPI",
+        "security": [], "responses": { "200": { "description": "OpenAPI 3.1 document" } }
+      }
+    },
+    "/overview": {
+      "get": {
+        "tags": ["meta"], "summary": "Account and storage overview", "operationId": "getOverview",
+        "x-required-scope": "read",
+        "responses": { "200": { "description": "Overview" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/keys": {
+      "get": {
+        "tags": ["keys"], "summary": "List API keys (no secrets)", "operationId": "listKeys",
+        "description": "Session-only. Returns key metadata; never returns tokens or hashes.",
+        "responses": { "200": { "description": "Keys", "content": { "application/json": { "schema": { "type": "object", "properties": { "keys": { "type": "array", "items": { "$ref": "#/components/schemas/Key" } } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      },
+      "post": {
+        "tags": ["keys"], "summary": "Create an API key", "operationId": "createKey",
+        "description": "Session-only. The plaintext token is returned exactly once.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "scope": { "$ref": "#/components/schemas/Scope" } } } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewKey" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/keys/{id}": {
+      "delete": {
+        "tags": ["keys"], "summary": "Revoke an API key", "operationId": "revokeKey",
+        "description": "Session-only.",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "204": { "description": "Revoked" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/files": {
+      "get": {
+        "tags": ["files"], "summary": "List folder children", "operationId": "listFiles",
+        "x-required-scope": "read",
+        "parameters": [
+          { "name": "folderId", "in": "query", "schema": { "type": "string" }, "description": "Folder id; defaults to the configured root" },
+          { "name": "pageToken", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Page of items", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResult" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      },
+      "post": {
+        "tags": ["files"], "summary": "Create a file with text content", "operationId": "createFile",
+        "x-required-scope": "readwrite",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "name": { "type": "string" }, "parentId": { "type": "string" }, "content": { "type": "string" }, "mimeType": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created file", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileItem" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/files/search": {
+      "get": {
+        "tags": ["files"], "summary": "Search files by name", "operationId": "searchFiles",
+        "x-required-scope": "read",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "scope", "in": "query", "schema": { "type": "string", "enum": ["folder", "drive"] } },
+          { "name": "folderId", "in": "query", "schema": { "type": "string" } },
+          { "name": "pageToken", "in": "query", "schema": { "type": "string" } },
+          { "name": "pageSize", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Search results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResult" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/files/mkdir": {
+      "post": {
+        "tags": ["files"], "summary": "Create a folder", "operationId": "makeDir",
+        "x-required-scope": "readwrite",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "parentId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Folder", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileItem" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/files/{id}": {
+      "patch": {
+        "tags": ["files"], "summary": "Update name and/or description", "operationId": "updateFile",
+        "x-required-scope": "readwrite",
+        "description": "At least one of name/description is required. An empty description clears it. Folder descriptions help agents understand a folder's purpose and are returned by list/search.",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "name": { "type": "string" }, "description": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Updated item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileItem" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["files"], "summary": "Move a file to trash", "operationId": "trashFile",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "204": { "description": "Trashed" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/files/{id}/content": {
+      "get": {
+        "tags": ["files"], "summary": "Read text file content", "operationId": "getContent",
+        "x-required-scope": "read",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "200": { "description": "File content" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "put": {
+        "tags": ["files"], "summary": "Overwrite text file content", "operationId": "putContent",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "requestBody": { "required": true, "content": { "text/plain": { "schema": { "type": "string" } } } },
+        "responses": { "200": { "description": "Updated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "413": { "$ref": "#/components/responses/TooLarge" } }
+      }
+    },
+    "/files/{id}/download": {
+      "get": {
+        "tags": ["files"], "summary": "Download a binary file", "operationId": "downloadFile",
+        "x-required-scope": "read",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "200": { "description": "Binary stream" }, "206": { "description": "Partial content" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/files/{id}/move": {
+      "post": {
+        "tags": ["files"], "summary": "Move to another folder", "operationId": "moveFile",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["parentId"], "properties": { "parentId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Moved item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileItem" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/files/{id}/copy": {
+      "post": {
+        "tags": ["files"], "summary": "Copy a file", "operationId": "copyFile",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "200": { "description": "Copied item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileItem" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/files/{id}/revisions": {
+      "get": {
+        "tags": ["files"], "summary": "List file revisions", "operationId": "listRevisions",
+        "x-required-scope": "read",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "200": { "description": "Revisions" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "description": "API key token: `Authorization: Bearer dbc_...`" },
+      "CookieAuth": { "type": "apiKey", "in": "cookie", "name": "dbc_session", "description": "Browser session cookie (UI). Full read-write." }
+    },
+    "parameters": {
+      "PathId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Drive file/folder id" }
+    },
+    "schemas": {
+      "Scope": { "type": "string", "enum": ["read", "readwrite"], "default": "read" },
+      "Error": { "type": "object", "properties": { "error": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" } } } } },
+      "FileItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "size": { "type": ["integer", "null"] },
+          "modifiedTime": { "type": "string" },
+          "isFolder": { "type": "boolean" },
+          "description": { "type": "string", "description": "Drive native description (folder/file blurb)" },
+          "thumbnailUrl": { "type": "string" }
+        }
+      },
+      "ListResult": {
+        "type": "object",
+        "properties": {
+          "folderId": { "type": "string" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/FileItem" } },
+          "nextPageToken": { "type": "string" }
+        }
+      },
+      "Key": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "hint": { "type": "string" },
+          "scope": { "$ref": "#/components/schemas/Scope" },
+          "createdAt": { "type": "string" },
+          "lastUsedAt": { "type": "string" },
+          "revoked": { "type": "boolean" }
+        }
+      },
+      "NewKey": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Key" },
+          { "type": "object", "properties": { "token": { "type": "string", "description": "Plaintext token, shown once" } } }
+        ]
+      }
+    },
+    "responses": {
+      "BadRequest": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "Missing or invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "API key lacks the required scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "Resource not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "TooLarge": { "description": "Request body exceeds the size limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

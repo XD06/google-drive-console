@@ -1,0 +1,11 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Drive Backup">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0A84FF"/>
+      <stop offset="100%" stop-color="#0071E3"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path fill="#fff" d="M156 176h64l28-28h108a28 28 0 0 1 28 28v188a28 28 0 0 1-28 28H156a28 28 0 0 1-28-28V204a28 28 0 0 1 28-28z" opacity="0.95"/>
+  <path fill="#fff" d="M188 292h136v24H188zm0 48h96v24h-96z" opacity="0.85"/>
+</svg>

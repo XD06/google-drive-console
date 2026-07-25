@@ -1,0 +1,3 @@
+﻿/* Tailwind utilities only — skip preflight so demo.css owns layout chrome */
+@tailwind components;
+@tailwind utilities;

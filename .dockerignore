@@ -1,0 +1,24 @@
+# Build context exclusions
+.git
+.data
+.env
+.playwright-cli
+.superpowers
+.workbuddy
+data/
+web/node_modules/
+web/dist/
+web/demo/
+web/demo-directions/
+*.exe
+*.log
+*.pid
+*.out
+*.err
+*.test
+bench_*.txt
+pw-mock.js
+server.exe
+server.err.log
+server.log
+tmp-*

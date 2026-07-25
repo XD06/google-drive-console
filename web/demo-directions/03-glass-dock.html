@@ -1,0 +1,737 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Direction C · Glass Dock (Apple polish)</title>
+    <style>
+      /* Apple-leaning product shell — not marketing glassmorphism */
+      :root {
+        color-scheme: light dark;
+        --bg: #e8eaef;
+        --sidebar: rgba(246, 247, 249, 0.78);
+        --workspace: rgba(255, 255, 255, 0.86);
+        --elevated: #ffffff;
+        --text: #1d1d1f;
+        --text-secondary: #6e6e73;
+        --text-tertiary: #86868b;
+        --separator: rgba(0, 0, 0, 0.08);
+        --separator-strong: rgba(0, 0, 0, 0.12);
+        --fill: rgba(0, 0, 0, 0.04);
+        --fill-hover: rgba(0, 0, 0, 0.06);
+        --fill-active: rgba(0, 0, 0, 0.08);
+        --accent: #0071e3;
+        --accent-hover: #0077ed;
+        --accent-soft: rgba(0, 113, 227, 0.12);
+        --accent-text: #0071e3;
+        --ok: #248a3d;
+        --ok-soft: rgba(36, 138, 61, 0.12);
+        --danger: #d70015;
+        --selection: rgba(0, 113, 227, 0.14);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+        --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 8px 28px rgba(0, 0, 0, 0.08);
+        --r: 10px;
+        --r-lg: 14px;
+        --r-xl: 16px;
+        --side: 236px;
+        --control-h: 28px;
+        --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", system-ui, sans-serif;
+        --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+        --blur: saturate(180%) blur(20px);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #000000;
+          --sidebar: rgba(28, 28, 30, 0.72);
+          --workspace: rgba(28, 28, 30, 0.86);
+          --elevated: #1c1c1e;
+          --text: #f5f5f7;
+          --text-secondary: #a1a1a6;
+          --text-tertiary: #6e6e73;
+          --separator: rgba(255, 255, 255, 0.08);
+          --separator-strong: rgba(255, 255, 255, 0.12);
+          --fill: rgba(255, 255, 255, 0.06);
+          --fill-hover: rgba(255, 255, 255, 0.09);
+          --fill-active: rgba(255, 255, 255, 0.12);
+          --accent: #0a84ff;
+          --accent-hover: #409cff;
+          --accent-soft: rgba(10, 132, 255, 0.18);
+          --accent-text: #64b5ff;
+          --ok: #30d158;
+          --ok-soft: rgba(48, 209, 88, 0.14);
+          --danger: #ff453a;
+          --selection: rgba(10, 132, 255, 0.22);
+          --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+          --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+          --shadow-panel: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 12px 40px rgba(0, 0, 0, 0.55);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font: 13px/1.35 var(--font);
+        color: var(--text);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        letter-spacing: -0.01em;
+      }
+
+      button, input { font: inherit; color: inherit; }
+      button {
+        border: 0;
+        background: none;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      button:active { transform: scale(0.98); }
+      button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+      .shell {
+        display: grid;
+        grid-template-columns: var(--side) 1fr;
+        gap: 10px;
+        height: 100dvh;
+        min-height: 640px;
+        padding: 10px;
+      }
+
+      .sidebar,
+      .workspace {
+        border-radius: var(--r-xl);
+        box-shadow: var(--shadow-panel);
+        overflow: hidden;
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        background: var(--sidebar);
+        backdrop-filter: var(--blur);
+        -webkit-backdrop-filter: var(--blur);
+        border: 0.5px solid var(--separator-strong);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-rows: 44px 40px 1fr 30px;
+        min-width: 0;
+        background: var(--workspace);
+        backdrop-filter: var(--blur);
+        -webkit-backdrop-filter: var(--blur);
+        border: 0.5px solid var(--separator-strong);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 14px 14px 10px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .mark {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(180deg, #3b82f6 0%, var(--accent) 100%);
+        color: #fff;
+        font: 700 9px/1 var(--mono);
+        box-shadow:
+          inset 0 0.5px 0 rgba(255, 255, 255, 0.35),
+          0 1px 2px rgba(0, 113, 227, 0.25);
+      }
+
+      .sec {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-tertiary);
+        padding: 12px 16px 4px;
+        letter-spacing: -0.01em;
+      }
+
+      .nav {
+        padding: 0 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        text-align: left;
+        min-height: 30px;
+        padding: 5px 10px;
+        border-radius: 7px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .nav-item svg {
+        width: 15px;
+        height: 15px;
+        opacity: 0.75;
+        flex: 0 0 auto;
+      }
+
+      .nav-item:hover {
+        background: var(--fill-hover);
+        color: var(--text);
+      }
+
+      .nav-item.is-active {
+        background: var(--fill-active);
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .nav-item.is-active svg { opacity: 1; }
+
+      .side-foot {
+        margin-top: auto;
+        border-top: 0.5px solid var(--separator);
+        padding: 10px;
+      }
+
+      .acct {
+        display: grid;
+        grid-template-columns: 28px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 6px;
+        border-radius: 9px;
+      }
+
+      .acct:hover { background: var(--fill); }
+
+      .avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: linear-gradient(145deg, #d1d5db, #9ca3af);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .avatar {
+          background: linear-gradient(145deg, #48484a, #3a3a3c);
+        }
+      }
+
+      .acct-name {
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .acct-mail {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .icon-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        color: var(--text-secondary);
+      }
+      .icon-btn:hover { background: var(--fill-hover); color: var(--text); }
+
+      .topbar,
+      .toolbar,
+      .footer {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 12px;
+        border-bottom: 0.5px solid var(--separator);
+      }
+
+      .footer {
+        border-bottom: 0;
+        border-top: 0.5px solid var(--separator);
+        color: var(--text-tertiary);
+        font: 11px/1 var(--mono);
+        letter-spacing: 0;
+      }
+
+      .crumbs {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+        font-size: 13px;
+      }
+
+      .crumbs strong {
+        color: var(--text);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .sep { color: var(--text-tertiary); opacity: 0.7; }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--ok-soft);
+        color: var(--ok);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .status::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .btn {
+        height: var(--control-h);
+        padding: 0 11px;
+        border-radius: 7px;
+        border: 0.5px solid var(--separator-strong);
+        background: var(--elevated);
+        color: var(--text);
+        font-size: 12.5px;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .btn:hover { background: color-mix(in srgb, var(--elevated) 88%, var(--text)); }
+
+      .btn-primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #fff;
+        font-weight: 600;
+        box-shadow: 0 1px 2px rgba(0, 113, 227, 0.25);
+      }
+
+      .btn-primary:hover { background: var(--accent-hover); }
+
+      .btn-ghost {
+        border-color: transparent;
+        background: transparent;
+        box-shadow: none;
+        color: var(--text-secondary);
+      }
+      .btn-ghost:hover { background: var(--fill-hover); color: var(--text); }
+
+      .btn-icon {
+        width: var(--control-h);
+        padding: 0;
+        justify-content: center;
+      }
+
+      .search-wrap {
+        position: relative;
+        width: min(260px, 34vw);
+      }
+
+      .search-wrap svg {
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 13px;
+        height: 13px;
+        color: var(--text-tertiary);
+        pointer-events: none;
+      }
+
+      .search {
+        width: 100%;
+        height: var(--control-h);
+        border-radius: 7px;
+        border: 0.5px solid var(--separator-strong);
+        padding: 0 10px 0 28px;
+        background: var(--fill);
+        color: var(--text);
+        box-shadow: none;
+      }
+
+      .search::placeholder { color: var(--text-tertiary); }
+      .search:focus {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--separator-strong));
+        box-shadow: 0 0 0 3px var(--accent-soft);
+        background: var(--elevated);
+      }
+
+      .main {
+        min-height: 0;
+        overflow: auto;
+        background: transparent;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      th, td {
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 0.5px solid var(--separator);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+      }
+
+      th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: color-mix(in srgb, var(--workspace) 92%, transparent);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        color: var(--text-tertiary);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      tr { cursor: default; }
+      tr:hover td { background: var(--fill); }
+      tr.is-selected td { background: var(--selection); }
+
+      .name {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+        font-weight: 500;
+      }
+
+      .ico {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+        background: var(--fill);
+        border: 0.5px solid var(--separator);
+        color: var(--text-secondary);
+        font: 700 9px/1 var(--mono);
+      }
+
+      .ico.folder {
+        background: linear-gradient(180deg, #ffe08a 0%, #f5c542 100%);
+        border-color: rgba(180, 120, 0, 0.2);
+        color: #7a4e00;
+        box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .ico.folder {
+          background: linear-gradient(180deg, #e0b43a 0%, #c4921a 100%);
+          color: #1c1400;
+        }
+      }
+
+      .meta {
+        color: var(--text-secondary);
+        font-variant-numeric: tabular-nums;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        font-weight: 450;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 0.12s ease;
+      }
+
+      tr:hover .actions,
+      tr.is-selected .actions { opacity: 1; }
+
+      .chip {
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 6px;
+        border: 0.5px solid var(--separator-strong);
+        background: var(--elevated);
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        box-shadow: var(--shadow-sm);
+      }
+      .chip:hover { color: var(--text); }
+
+      .toolbar-spacer { flex: 1; }
+
+      .banner {
+        position: fixed;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px 8px 14px;
+        border-radius: 999px;
+        background: var(--sidebar);
+        backdrop-filter: var(--blur);
+        -webkit-backdrop-filter: var(--blur);
+        border: 0.5px solid var(--separator-strong);
+        box-shadow: var(--shadow-md);
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+
+      .banner strong { color: var(--text); font-weight: 600; }
+      .banner a {
+        color: var(--accent-text);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .banner a:hover { text-decoration: underline; }
+
+      @media (max-width: 860px) {
+        .shell { grid-template-columns: 1fr; padding: 8px; }
+        .sidebar { display: none; }
+        th:nth-child(2), td:nth-child(2),
+        th:nth-child(3), td:nth-child(3) { display: none; }
+      }
+
+      @media (prefers-reduced-transparency: reduce) {
+        .sidebar,
+        .workspace,
+        .banner,
+        th {
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+        }
+        .sidebar { background: var(--elevated); }
+        .workspace { background: var(--elevated); }
+        .banner { background: var(--elevated); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        button:active { transform: none; }
+        .actions { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar" aria-label="导航">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">DB</span>
+          Drive Backup
+        </div>
+
+        <div class="sec">资料库</div>
+        <nav class="nav" aria-label="Library">
+          <button class="nav-item is-active" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <path d="M4 7h4l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" />
+            </svg>
+            我的云盘
+          </button>
+          <button class="nav-item" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            最近
+          </button>
+          <button class="nav-item" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <path d="M4 6h16M4 12h10M4 18h13" />
+            </svg>
+            活动
+          </button>
+        </nav>
+
+        <div class="sec">系统</div>
+        <nav class="nav" aria-label="System">
+          <button class="nav-item" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <path d="M4 19V5M8 19v-7M12 19V8M16 19v-4M20 19V9" />
+            </svg>
+            概览
+          </button>
+          <button class="nav-item" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+            </svg>
+            设置
+          </button>
+        </nav>
+
+        <div class="side-foot">
+          <div class="acct">
+            <span class="avatar" aria-hidden="true">X</span>
+            <div style="min-width:0">
+              <div class="acct-name">Operator</div>
+              <div class="acct-mail">xxt221673@gmail.com</div>
+            </div>
+            <button class="icon-btn" type="button" title="退出" aria-label="退出">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="M16 17l5-5-5-5" />
+                <path d="M21 12H9" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <button class="btn btn-ghost btn-icon" type="button" aria-label="上级目录">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <nav class="crumbs" aria-label="路径">
+            <span>我的云盘</span>
+            <span class="sep">/</span>
+            <strong>Backups</strong>
+          </nav>
+          <span class="status">已连接</span>
+        </header>
+
+        <div class="toolbar">
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3-3" />
+            </svg>
+            <input class="search" type="search" placeholder="搜索此文件夹…" aria-label="搜索" />
+          </div>
+          <button class="btn" type="button">新建文件夹</button>
+          <button class="btn btn-primary" type="button">上传</button>
+          <span class="toolbar-spacer"></span>
+          <button class="btn" type="button">多选</button>
+          <button class="btn" type="button">排序</button>
+        </div>
+
+        <main class="main">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:42%">名称</th>
+                <th style="width:14%">类型</th>
+                <th style="width:14%">大小</th>
+                <th style="width:18%">修改时间</th>
+                <th style="width:12%"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="is-selected">
+                <td>
+                  <div class="name">
+                    <span class="ico folder">F</span>
+                    <span>2026-Q2 snapshots</span>
+                  </div>
+                </td>
+                <td class="meta">文件夹</td>
+                <td class="meta">-</td>
+                <td class="meta">2026-07-18 21:04</td>
+                <td><div class="actions"><button class="chip" type="button">打开</button></div></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="name">
+                    <span class="ico">MD</span>
+                    <span>restore-notes.md</span>
+                  </div>
+                </td>
+                <td class="meta">Markdown</td>
+                <td class="meta">12.4 KB</td>
+                <td class="meta">2026-07-17 09:12</td>
+                <td><div class="actions"><button class="chip" type="button">···</button></div></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="name">
+                    <span class="ico">ZIP</span>
+                    <span>photos-raw.zip</span>
+                  </div>
+                </td>
+                <td class="meta">压缩包</td>
+                <td class="meta">1.82 GB</td>
+                <td class="meta">2026-07-12 16:40</td>
+                <td><div class="actions"><button class="chip" type="button">···</button></div></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="name">
+                    <span class="ico">PNG</span>
+                    <span>console-wire.png</span>
+                  </div>
+                </td>
+                <td class="meta">图片</td>
+                <td class="meta">846 KB</td>
+                <td class="meta">2026-07-09 11:03</td>
+                <td><div class="actions"><button class="chip" type="button">···</button></div></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="name">
+                    <span class="ico">PDF</span>
+                    <span>runbook.pdf</span>
+                  </div>
+                </td>
+                <td class="meta">PDF</td>
+                <td class="meta">2.1 MB</td>
+                <td class="meta">2026-06-28 08:55</td>
+                <td><div class="actions"><button class="chip" type="button">···</button></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </main>
+
+        <footer class="footer">5 项 · 已选 1 · 跟随系统主题</footer>
+      </div>
+    </div>
+
+    <div class="banner">
+      <strong>C · Glass Dock</strong>
+      苹果质感打磨版
+      <a href="./index.html">返回目录</a>
+    </div>
+  </body>
+</html>

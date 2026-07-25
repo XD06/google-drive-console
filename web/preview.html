@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glass Preview</title>
+    <script type="module">
+      import "/src/demo.css";
+      import "/src/features.css";
+      const p = new URLSearchParams(location.search);
+      document.documentElement.setAttribute("data-theme", p.get("theme") === "dark" ? "dark" : "light");
+    </script>
+  </head>
+  <body>
+    <div class="shell is-on" aria-label="文件控制台">
+      <aside class="sidebar">
+        <div class="side-brand">
+          <span class="side-brand-mark">D</span>
+          <span>Drive Console</span>
+        </div>
+        <div class="nav-label">位置</div>
+        <button class="nav-item is-active">📁 我的云端硬盘</button>
+        <button class="nav-item">🕘 最近</button>
+        <button class="nav-item">⭐ 已加星标</button>
+        <button class="nav-item">🗑️ 回收站</button>
+        <div class="nav-label">概览</div>
+        <button class="nav-item">📊 存储概览</button>
+        <div class="nav-section">
+          <div class="nav-label">最近文件夹</div>
+          <div class="recent-folder-item">📁 <span class="recent-name">项目资料</span></div>
+          <div class="recent-folder-item">📁 <span class="recent-name">照片备份</span></div>
+        </div>
+        <div class="side-foot">
+          <div class="account-row">
+            <span class="account-avatar">N</span>
+            <span class="account-meta">
+              <span class="account-line">neko@example.com</span>
+            </span>
+            <button class="account-logout">⎋</button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="topbar">
+          <div class="crumbs">
+            <span class="crumb">我的云端硬盘</span>
+            <span>›</span>
+            <span class="crumb">项目资料</span>
+          </div>
+        </div>
+        <div class="toolbar">
+          <span class="toolbar-title">项目资料</span>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost btn-sm">排序</button>
+          <button class="btn btn-sm">新建文件夹</button>
+          <button class="btn btn-primary btn-sm">上传</button>
+        </div>
+        <div class="main-row">
+          <div class="panel">
+            <div class="main">
+              <div class="virtual-scroll-body" style="overflow:auto;">
+                <table class="file-table">
+                  <thead>
+                    <tr>
+                      <th class="col-check"><input type="checkbox" /></th>
+                      <th>名称</th>
+                      <th>大小</th>
+                      <th>修改时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="col-check"><input type="checkbox" /></td>
+                      <td class="name-cell">
+                        <span style="margin-right:8px;">📁</span>
+                        <span class="name-text">
+                          <span class="name-label">设计稿与规范</span>
+                          <span class="item-desc">品牌视觉、组件库与交付说明，供 AI 检索时判断用途</span>
+                        </span>
+                      </td>
+                      <td>—</td>
+                      <td>今天 09:24</td>
+                    </tr>
+                    <tr>
+                      <td class="col-check"><input type="checkbox" /></td>
+                      <td class="name-cell">
+                        <span style="margin-right:8px;">📁</span>
+                        <span class="name-text">
+                          <span class="name-label">原始素材</span>
+                          <span class="item-desc">未处理的照片与录音，体积较大，谨慎同步</span>
+                        </span>
+                      </td>
+                      <td>—</td>
+                      <td>昨天 18:03</td>
+                    </tr>
+                    <tr class="is-selected">
+                      <td class="col-check"><input type="checkbox" checked /></td>
+                      <td class="name-cell"><span style="margin-right:8px;">🖼️</span><span class="name-text"><span class="name-label">封面-v3.png</span></span></td>
+                      <td>2.4 MB</td>
+                      <td>今天 11:10</td>
+                    </tr>
+                    <tr>
+                      <td class="col-check"><input type="checkbox" /></td>
+                      <td class="name-cell"><span style="margin-right:8px;">📄</span><span class="name-text"><span class="name-label">需求说明.pdf</span></span></td>
+                      <td>860 KB</td>
+                      <td>7月20日</td>
+                    </tr>
+                    <tr>
+                      <td class="col-check"><input type="checkbox" /></td>
+                      <td class="name-cell"><span style="margin-right:8px;">🎬</span><span class="name-text"><span class="name-label">演示录屏.mp4</span></span></td>
+                      <td>128 MB</td>
+                      <td>7月18日</td>
+                    </tr>
+                    <tr>
+                      <td class="col-check"><input type="checkbox" /></td>
+                      <td class="name-cell"><span style="margin-right:8px;">🎵</span><span class="name-text"><span class="name-label">STYX HELIX.flac</span></span></td>
+                      <td>36 MB</td>
+                      <td>7月12日</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="footer" style="display:flex;align-items:center;padding:0 14px;color:var(--muted);font-size:.78rem;">6 个项目 · 已用 42.6 GB / 100 GB</div>
+      </section>
+
+      <!-- floating glass context menu -->
+      <div class="ctx-menu" style="top:120px;left:360px;">
+        <button>↧ 下载</button>
+        <button>✎ 重命名</button>
+        <button>✎ 编辑描述</button>
+        <button>⤴ 分享</button>
+        <div class="ctx-separator"></div>
+        <button class="is-danger">🗑 移到回收站</button>
+      </div>
+
+      <!-- glass dialog -->
+      <div class="modal-overlay is-on"></div>
+      <div class="modal-sheet is-on">
+        <div class="modal-head"><h3>编辑描述</h3><button class="btn btn-ghost btn-sm btn-icon">✕</button></div>
+        <div class="modal-row"><input class="modal-input" value="供 AI 检索时判断用途" /></div>
+        <div class="modal-footer">
+          <button class="btn btn-sm">取消</button>
+          <button class="btn btn-primary btn-sm">保存</button>
+        </div>
+      </div>
+
+      <!-- mobile chrome (shown by responsive CSS on narrow widths) -->
+      <nav class="bottom-nav">
+        <button class="bottom-nav-item is-active"><span class="bn-ico">📁</span>文件</button>
+        <button class="bottom-nav-item"><span class="bn-ico">🕘</span>最近</button>
+        <button class="bottom-nav-item"><span class="bn-ico">⭐</span>星标</button>
+        <button class="bottom-nav-item"><span class="bn-ico">📊</span>概览</button>
+      </nav>
+      <button class="fab">＋</button>
+    </div>
+  </body>
+</html>

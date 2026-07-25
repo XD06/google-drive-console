@@ -1,0 +1,30 @@
+# Docker Compose for Drive Backup Console
+# Usage: docker compose up --build
+
+services:
+  app:
+    build: .
+    container_name: drive-backup-console
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+      - DATA_DIR=/data
+      - WEB_DIST_DIR=/web/dist
+      - DEV_MODE=0
+      - SECURE_COOKIE=true
+    volumes:
+      - app-data:/data
+    healthcheck:
+      test: ["CMD", "/server", "--health"]  # fallback: wget not available in distroless
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  app-data:
+    driver: local

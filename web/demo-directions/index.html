@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drive Console · Style Directions</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1115;
+        --card: #171a21;
+        --line: #2a2f3a;
+        --text: #e8eaef;
+        --muted: #9aa3b2;
+        --accent: #5b8cff;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f3f4f6;
+          --card: #ffffff;
+          --line: #e5e7eb;
+          --text: #111827;
+          --muted: #6b7280;
+          --accent: #2563eb;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 32px 24px 48px;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; }
+      h1 { font-size: 1.5rem; letter-spacing: -0.03em; margin: 0 0 8px; }
+      .lead { color: var(--muted); margin: 0 0 28px; max-width: 62ch; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+      }
+      a.card {
+        display: block;
+        text-decoration: none;
+        color: inherit;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 18px 18px 16px;
+        transition: transform 0.15s ease, border-color 0.15s ease;
+      }
+      a.card:hover {
+        transform: translateY(-2px);
+        border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+      }
+      .tag {
+        display: inline-block;
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 10px;
+      }
+      .card h2 { margin: 0 0 8px; font-size: 1.05rem; letter-spacing: -0.02em; }
+      .card p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+      .meta {
+        margin-top: 28px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Drive Backup Console · 视觉方向 Demo</h1>
+      <p class="lead">
+        已锁定 <strong>C · Glass Dock</strong>（苹果质感打磨）。无炫光 mesh、系统双主题、0.5px 发丝线、SF 系字体、#0071e3 主色。
+        确认观感后即可迁入生产 <code>demo.css</code>。Dials: variance 4 / motion 3 / density 7。
+      </p>
+      <div class="grid">
+        <a class="card" href="./01-instrument.html">
+          <span class="tag">A · Instrument</span>
+          <h2>冷仪器 · Linear × Finder</h2>
+          <p>冷灰 zinc、发丝线、mono 元数据。备选参考，非当前主方向。</p>
+        </a>
+        <a class="card" href="./02-paper.html">
+          <span class="tag">B · Paper</span>
+          <h2>纸面档案 · 暖石色</h2>
+          <p>暖纸底档案气质。未采用。</p>
+        </a>
+        <a class="card" href="./03-glass-dock.html" style="border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);">
+          <span class="tag">C · SELECTED</span>
+          <h2>Glass Dock · 苹果质感</h2>
+          <p>系统浅/深、半透明 dock 面板、Finder 密度、克制蓝。去 AI 炫光后的生产目标。</p>
+        </a>
+      </div>
+      <p class="meta">
+        路径: <code>web/demo-directions/</code> · 本地可用 Vite 静态访问，或直接用浏览器打开 HTML。
+      </p>
+    </div>
+  </body>
+</html>
