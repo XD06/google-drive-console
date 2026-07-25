@@ -259,6 +259,7 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
   type ImagePreviewState = {
     id: string;
     name: string;
+    mimeType?: string;
     url: string | null;
     loading: boolean;
     error: string | null;
@@ -1226,7 +1227,22 @@ void loadFiles(folderId);
       URL.revokeObjectURL(imageUrlRef.current);
       imageUrlRef.current = null;
     }
-    // Show thumbnail instantly (server proxies Google's thumbnail with OAuth)
+
+    // Video & PDF: use streaming URL directly (server supports Range requests)
+    // — no need to download the entire file into memory first.
+    if (isVideoPreviewable(item) || isPdfPreviewable(item)) {
+      setImagePreview({
+        id: item.id,
+        name: item.name,
+        mimeType: item.mimeType,
+        url: fileDownloadUrl(item.id, item),
+        loading: false,
+        error: null,
+      });
+      return;
+    }
+
+    // Images: show thumbnail instantly, then load full-res in background
     setImagePreview({
       id: item.id,
       name: item.name,
@@ -1235,7 +1251,6 @@ void loadFiles(folderId);
       error: null,
     });
     try {
-      // Load full-resolution image in background
       const blob = await fetchFileBlob(item.id, item);
       const url = URL.createObjectURL(blob);
       imageUrlRef.current = url;
