@@ -608,6 +608,17 @@ export async function putUploadChunk(
   });
 }
 
+/**
+ * Query server-side upload status (for resume after failure).
+ */
+export async function getUploadStatus(uploadId: string): Promise<UploadJob> {
+  const res = await fetch(`/api/uploads/${encodeURIComponent(uploadId)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res, "upload_status");
+  return res.json() as Promise<UploadJob>;
+}
+
 export async function uploadFile(
   file: File,
   opts: {
@@ -645,87 +656,129 @@ export async function uploadFile(
 
   opts.onProgress?.(0, file.size, job.status || "uploading");
 
-  // U2/U5: Use adaptive chunk size based on file size
   const chunkSize = getAdaptiveChunkSize(file.size);
   let offset = 0;
-  let current = job;
+  let current: UploadJob = job;
   let lastUi = 0;
-  // Pipelined upload: allow 2 chunks inflight to overlap client→server and server→Drive.
-  const inflight: Promise<typeof current>[] = [];
-  const inflightMeta: { base: number; end: number }[] = [];
+  let totalRetries = 0;
+  const MAX_RETRIES = 5; // total retry budget per upload
+  let usePipeline = true; // disable after first failure
+
   while (offset < file.size) {
     if (opts.signal?.aborted) {
-      try {
-        await cancelUpload(job.uploadId);
-      } catch {
-        /* best-effort */
-      }
+      try { await cancelUpload(job.uploadId); } catch { /* */ }
       throw new ApiError(0, "upload_aborted", "upload cancelled");
     }
-    const end = Math.min(offset + chunkSize, file.size);
-    const slice = file.slice(offset, end);
-    const base = offset;
-    inflight.push(
-      putUploadChunk(
-        job.uploadId,
-        slice,
-        offset,
-        file.size,
-        (loaded, chunkSize) => {
-          const now =
-            typeof performance !== "undefined" ? performance.now() : Date.now();
-          if (loaded < chunkSize && now - lastUi < 80) return;
-          lastUi = now;
-          opts.onProgress?.(
-            Math.min(base + loaded, file.size),
-            file.size,
-            "uploading",
-          );
-        },
-        opts.signal,
-      ),
-    );
-    inflightMeta.push({ base, end });
-    offset = end;
 
-    // When 2 chunks are inflight, wait for the oldest one to complete.
-    if (inflight.length >= 2) {
-      current = await inflight.shift()!;
-      const meta = inflightMeta.shift()!;
-      lastUi = 0;
-      opts.onProgress?.(
-        current.bytesReceived ?? meta.end,
-        file.size,
-        current.status,
-      );
-      if (
-        current.status === "completed" ||
-        current.status === "failed" ||
-        current.status === "cancelled"
-      ) {
-        // Drain remaining inflight
-        await Promise.allSettled(inflight);
-        break;
+    try {
+      if (usePipeline) {
+        // Pipelined: 2 chunks inflight
+        const inflight: Promise<UploadJob>[] = [];
+        const inflightMeta: { base: number; end: number }[] = [];
+
+        while (offset < file.size && inflight.length < 2) {
+          const end = Math.min(offset + chunkSize, file.size);
+          const base = offset;
+          inflight.push(
+            putUploadChunk(job.uploadId, file.slice(offset, end), offset, file.size,
+              (loaded, cs) => {
+                const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+                if (loaded < cs && now - lastUi < 80) return;
+                lastUi = now;
+                opts.onProgress?.(Math.min(base + loaded, file.size), file.size, "uploading");
+              }, opts.signal),
+          );
+          inflightMeta.push({ base, end });
+          offset = end;
+        }
+
+        // Await inflight chunks
+        while (inflight.length > 0) {
+          current = await inflight.shift()!;
+          const meta = inflightMeta.shift()!;
+          lastUi = 0;
+          opts.onProgress?.(current.bytesReceived ?? meta.end, file.size, current.status);
+          if (current.status === "completed" || current.status === "failed" || current.status === "cancelled") {
+            await Promise.allSettled(inflight);
+            if (current.status === "completed") return current;
+            throw new ApiError(400, "chunk_failed", current.error || "chunk failed");
+          }
+        }
+      } else {
+        // Sequential: one chunk at a time (after a retry)
+        const end = Math.min(offset + chunkSize, file.size);
+        const base = offset;
+        current = await putUploadChunk(
+          job.uploadId, file.slice(offset, end), offset, file.size,
+          (loaded, cs) => {
+            const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+            if (loaded < cs && now - lastUi < 80) return;
+            lastUi = now;
+            opts.onProgress?.(Math.min(base + loaded, file.size), file.size, "uploading");
+          }, opts.signal,
+        );
+        lastUi = 0;
+        opts.onProgress?.(current.bytesReceived ?? end, file.size, current.status);
+        if (current.status === "completed") return current;
+        if (current.status === "failed" || current.status === "cancelled") {
+          throw new ApiError(400, "chunk_failed", current.error || "chunk failed");
+        }
+        offset = end;
+      }
+    } catch (e) {
+      // Abort: don't retry
+      if (opts.signal?.aborted || (e instanceof ApiError && e.code === "upload_aborted")) {
+        throw e;
+      }
+
+      totalRetries++;
+      if (totalRetries > MAX_RETRIES) {
+        // Exhausted retry budget
+        if (e instanceof Error) throw e;
+        throw new ApiError(0, "upload_failed", "upload failed after retries");
+      }
+
+      // Switch to sequential mode after any failure
+      usePipeline = false;
+
+      // Backoff: 1s, 2s, 3s...
+      await new Promise((r) => setTimeout(r, totalRetries * 1000));
+
+      // Query server for actual confirmed offset
+      try {
+        const status = await getUploadStatus(job.uploadId);
+        if (status.status === "completed") {
+          opts.onProgress?.(file.size, file.size, "completed");
+          return status;
+        }
+        if (status.status === "failed" || status.status === "cancelled") {
+          throw new ApiError(400, "upload_failed", status.error || "upload failed on server");
+        }
+        // Resume from server-confirmed offset
+        offset = status.bytesReceived ?? 0;
+        opts.onProgress?.(offset, file.size, "uploading");
+      } catch (statusErr) {
+        // If status query also fails, re-throw original error
+        if (statusErr instanceof ApiError && (statusErr.code === "upload_failed" || statusErr.code === "upload_aborted")) {
+          throw statusErr;
+        }
+        // Otherwise retry from last known offset (optimistic)
       }
     }
   }
-  // Drain any remaining inflight chunks
-  while (inflight.length > 0) {
-    current = await inflight.shift()!;
-    const meta = inflightMeta.shift()!;
-    lastUi = 0;
-    opts.onProgress?.(
-      current.bytesReceived ?? meta.end,
-      file.size,
-      current.status,
-    );
-    if (
-      current.status === "completed" ||
-      current.status === "failed" ||
-      current.status === "cancelled"
-    ) {
-      await Promise.allSettled(inflight);
-      break;
+
+  // Final: drain completed
+  if (current.status !== "completed" && offset >= file.size) {
+    // All chunks sent, query final status
+    try {
+      const final = await getUploadStatus(job.uploadId);
+      if (final.status === "completed") {
+        opts.onProgress?.(file.size, file.size, "completed");
+        return final;
+      }
+      return final;
+    } catch {
+      return current;
     }
   }
   return current;
