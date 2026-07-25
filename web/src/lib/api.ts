@@ -552,29 +552,35 @@ export async function putUploadChunk(
       if (estTimer) clearInterval(estTimer);
     };
 
-    // Real progress: bytes sent to Go server (fast on localhost)
+    // Progress is split into two phases:
+    // Phase 1 (0–50%): browser → Go server (fast on localhost)
+    // Phase 2 (50–95%): estimated while Go server → Google Drive (slow)
+    // Final 100%: when server responds with confirmation
+    let estTimer: ReturnType<typeof setInterval> | null = null;
+    let estLoaded = 0;
+
     xhr.upload.onprogress = (ev) => {
       if (!onChunkProgress) return;
       const loaded = ev.lengthComputable ? ev.loaded : 0;
-      onChunkProgress(Math.min(loaded, chunkSize), chunkSize);
+      // Phase 1: scale browser→server bytes to 0–50% of perceived progress
+      const phase1 = Math.min(loaded / chunkSize, 1) * chunkSize * 0.5;
+      estLoaded = phase1;
+      onChunkProgress(Math.round(phase1), chunkSize);
     };
 
-    // When all data is sent to server, start smooth estimation
-    // while Go server uploads to Google Drive (the slow part)
-    let estTimer: ReturnType<typeof setInterval> | null = null;
-    let estLoaded = chunkSize; // start at 100% of chunk sent to server
     xhr.upload.onload = () => {
       if (!onChunkProgress) return;
-      // Data fully sent to server — now server is uploading to Drive.
-      // Slowly estimate progress: approach but never reach chunkSize.
-      // This gives smooth visual progress during the server-side upload.
+      // All data sent to server — now server is uploading to Drive.
+      // Start at 50% and smoothly approach 95%.
+      estLoaded = chunkSize * 0.5;
+      onChunkProgress(Math.round(estLoaded), chunkSize);
       estTimer = setInterval(() => {
-        // Advance 1% of remaining gap every 100ms, but never exceed 98%
-        const gap = chunkSize - estLoaded;
+        const target = chunkSize * 0.95;
+        const gap = target - estLoaded;
         if (gap <= 0) return;
-        estLoaded += Math.max(1, gap * 0.03); // 3% of remaining gap per tick
-        estLoaded = Math.min(estLoaded, chunkSize * 0.98);
-        onChunkProgress(estLoaded, chunkSize);
+        estLoaded += Math.max(1, gap * 0.04); // 4% of remaining gap per 100ms
+        estLoaded = Math.min(estLoaded, target);
+        onChunkProgress(Math.round(estLoaded), chunkSize);
       }, 100);
     };
 
