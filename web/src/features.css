@@ -357,8 +357,9 @@ html[data-theme="light"] {
 
 /* ===== Mobile / PWA optimizations ===== */
 @media (max-width: 768px) {
-  /* Safe area insets for notch devices */
-  .topbar { padding-top: env(safe-area-inset-top); }
+  /* Safe area insets for notch devices.
+     (.topbar takes the top inset via margin in wallpaper mode; padding-top
+     here bloated the floating card, so it was dropped.) */
   .sidebar { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   .footer { padding-bottom: env(safe-area-inset-bottom); }
 
@@ -1419,10 +1420,92 @@ html[data-wallpaper="photo"] {
   }
 }
 
+/* Mobile photo mode: the full-bleed workspace glass smeared the whole
+   wallpaper into a gradient. Instead keep the wallpaper sharp and float
+   the content as a glass card, like the reference shots. */
+@media (max-width: 900px) {
+  html[data-wallpaper="photo"] .workspace {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  html[data-wallpaper="photo"] .main-row {
+    padding: 0;
+  }
+  html[data-wallpaper="photo"] .main.panel {
+    margin: 8px 10px calc(76px + env(safe-area-inset-bottom));
+    border-radius: 20px;
+    background: var(--workspace-fill);
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
+    border: 0.5px solid var(--glass-stroke);
+    box-shadow: var(--shadow-panel);
+  }
+  /* Card already clears the nav; drop the old in-scroll clearance */
+  html[data-wallpaper="photo"] .table-wrap {
+    padding-bottom: 12px;
+  }
+  html[data-wallpaper="photo"] .overview-page {
+    padding-bottom: 16px;
+  }
+  /* Top chrome blurs the sharp wallpaper directly — needs a firmer fill.
+     Floats off the edges like the bottom nav: topbar is the rounded top
+     half, toolbar the rounded bottom half of one glass card. */
+  html[data-wallpaper="photo"] .topbar,
+  html[data-wallpaper="photo"] .toolbar {
+    background: color-mix(in srgb, var(--surface) 62%, transparent);
+    backdrop-filter: saturate(140%) blur(24px);
+    -webkit-backdrop-filter: saturate(140%) blur(24px);
+  }
+  html[data-wallpaper="photo"] .topbar {
+    margin: max(8px, env(safe-area-inset-top)) 10px 0;
+    border-radius: 20px 20px 0 0;
+    border: 0.5px solid var(--glass-stroke);
+    border-bottom: 0.5px solid var(--border);
+  }
+  html[data-wallpaper="photo"] .toolbar {
+    margin: 0 10px;
+    border-radius: 0 0 20px 20px;
+    border: 0.5px solid var(--glass-stroke);
+    border-top: 0;
+    box-shadow: var(--shadow-panel);
+  }
+  /* Overview hides its toolbar on mobile — close the card on the topbar */
+  html[data-wallpaper="photo"] .workspace:has(.toolbar-overview) .topbar {
+    border-radius: 20px;
+    border-bottom: 0.5px solid var(--glass-stroke);
+    box-shadow: var(--shadow-panel);
+  }
+  /* Bottom nav becomes a floating glass pill */
+  html[data-wallpaper="photo"] .bottom-nav {
+    left: 12px;
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    height: 58px;
+    padding-bottom: 0;
+    border-radius: 22px;
+    border: 0.5px solid var(--glass-stroke);
+    border-top-width: 0.5px;
+    background: color-mix(in srgb, var(--surface) 60%, transparent);
+    backdrop-filter: saturate(150%) blur(26px);
+    -webkit-backdrop-filter: saturate(150%) blur(26px);
+    box-shadow: var(--shadow-panel);
+  }
+  html[data-wallpaper="photo"] .fab {
+    bottom: calc(58px + max(10px, env(safe-area-inset-bottom)) + 14px);
+  }
+  html[data-wallpaper="photo"] .fab-actions {
+    bottom: calc(58px + max(10px, env(safe-area-inset-bottom)) + 14px + 56px + 14px);
+  }
+}
+
 /* Keep the accessibility / no-blur downgrades authoritative */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   html[data-theme="light"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #f4f6fb; --workspace-fill: #fbfcfe; }
   html[data-theme="dark"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #1c1d24; --workspace-fill: #16171d; }
+  html[data-wallpaper="photo"] .topbar,
+  html[data-wallpaper="photo"] .toolbar,
+  html[data-wallpaper="photo"] .bottom-nav { background: var(--surface); }
 }
 @media (prefers-reduced-transparency: reduce) {
   html[data-theme="light"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #f4f6fb; --workspace-fill: #fbfcfe; --blur: none; }
@@ -1434,8 +1517,14 @@ html[data-wallpaper="photo"] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
+  html[data-wallpaper="photo"] .bottom-nav {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
   html[data-wallpaper="aurora"] body::before,
-  html[data-wallpaper="sakura"] body::before { display: none; }
+  html[data-wallpaper="sakura"] body::before,
+  html[data-wallpaper="photo"] body::before { display: none; }
 }
 
 
