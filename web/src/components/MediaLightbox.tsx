@@ -160,12 +160,14 @@ export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev,
     }
   }, [onPrev, onNext, hasPrev, hasNext]);
 
-  // Video speed tracker
+  // Video speed tracker: estimates download speed from buffered-time progress
+  // × total file size (reliable — Performance API transferSize is often 0 for
+  // streamed/proxied media). Size comes from the file list metadata.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoSpeed, setVideoSpeed] = useState<string | null>(null);
-  const speedTracker = useRef<{ lastBytes: number; lastTime: number; timer: ReturnType<typeof setInterval> | null }>({
-    lastBytes: 0, lastTime: 0, timer: null,
-  });
+  const videoSizeRef = useRef<number | null>(null);
+  videoSizeRef.current = item && typeof item.size === "number" ? item.size : null;
+  const speedTracker = useRef<{ timer: ReturnType<typeof setInterval> | null }>({ timer: null });
 
   useEffect(() => {
     return () => {
@@ -175,47 +177,30 @@ export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev,
 
   const onVideoRef = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
-    // Clear old timer
     if (speedTracker.current.timer) {
       clearInterval(speedTracker.current.timer);
       speedTracker.current.timer = null;
     }
     setVideoSpeed(null);
     if (!el) return;
-    speedTracker.current = { lastBytes: 0, lastTime: performance.now(), timer: null };
+    let lastFrac = 0;
+    let lastTime = performance.now();
     speedTracker.current.timer = setInterval(() => {
-      if (!el.buffered.length) return;
-      // Total buffered bytes estimate: buffered seconds * bitrate
-      const bufferedEnd = el.buffered.end(el.buffered.length - 1);
-      // Fallback: use a byte-based approach via performance entries
+      if (!el.buffered.length || !el.duration || !isFinite(el.duration)) return;
+      const frac = el.buffered.end(el.buffered.length - 1) / el.duration;
       const now = performance.now();
-      const dt = (now - speedTracker.current.lastTime) / 1000;
-      if (dt < 0.5) return; // update every 500ms
-      const bytesDelta = (bufferedEnd - speedTracker.current.lastBytes) * (el.duration > 0 ? 1 : 0);
-      speedTracker.current.lastTime = now;
-      speedTracker.current.lastBytes = bufferedEnd;
-      // Calculate speed from buffered time progress × estimated bitrate
-      if (el.duration > 0 && dt > 0) {
-        // Use actual downloaded resource size if available
-        const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
-        const videoEntry = entries.filter(e => e.name.includes("/download") && e.transferSize > 0).pop();
-        if (videoEntry && videoEntry.transferSize > 0) {
-          // Total transfer / elapsed time from start
-          const elapsed = (now - (videoEntry.startTime + performance.timeOrigin - performance.timeOrigin)) / 1000;
-          if (elapsed > 0) {
-            const bps = videoEntry.transferSize / elapsed;
-            setVideoSpeed(formatSpeed(bps));
-            return;
-          }
-        }
-        // Fallback: estimate from buffered seconds change
-        if (bytesDelta > 0) {
-          // Rough estimate: bitrate × time buffered
-          const estimatedFileSize = el.duration > 0 ? (el.duration * 500000) : 0; // rough 4Mbps
-          const ratio = bytesDelta / el.duration;
-          const speed = ratio * estimatedFileSize / dt;
-          if (speed > 0) setVideoSpeed(formatSpeed(speed));
-        }
+      const dt = (now - lastTime) / 1000;
+      if (dt <= 0) return;
+      const fracDelta = frac - lastFrac;
+      lastFrac = frac;
+      lastTime = now;
+      const size = videoSizeRef.current;
+      if (size && size > 0 && fracDelta > 0) {
+        // bytes downloaded ≈ buffered-fraction delta × total file size
+        setVideoSpeed(formatSpeed((fracDelta * size) / dt));
+      } else {
+        // Idle (fully buffered / paused download / unknown size) — hide badge
+        setVideoSpeed(null);
       }
     }, 1000);
   }, []);
