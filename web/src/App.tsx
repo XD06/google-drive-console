@@ -269,7 +269,7 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
 
   const [searchQ, setSearchQ] = useState("");
   const [searchScope, setSearchScope] = useState<SearchScope>("drive");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchSuggest, setSearchSuggest] = useState<FileItem[]>([]);
@@ -277,7 +277,6 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searchNextToken, setSearchNextToken] = useState<string | null>(null);
   const [searchActiveQuery, setSearchActiveQuery] = useState("");
-  const searchBoxRef = useRef<HTMLDivElement>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -698,7 +697,7 @@ clearNavState();
       lastFolderOpenRef.current = { id: item.id, at: now };
     }
     setSearchMode(false);
-    setSearchOpen(false);
+    setSearchModalOpen(false);
     if (fromSearch) {
       setTrail([{ id: item.id, name: item.name }]);
     } else {
@@ -754,7 +753,7 @@ clearNavState();
     clearSearchDebounce();
     abortSearch();
     setSearchMode(false);
-    setSearchOpen(false);
+    setSearchModalOpen(false);
     setSearchResults([]);
     setSearchSuggest([]);
     setSearchNextToken(null);
@@ -794,7 +793,6 @@ clearNavState();
       if (ac.signal.aborted) return;
       if (opts.suggest) {
         setSearchSuggest(res.items.slice(0, 8));
-        setSearchOpen(true);
       } else if (opts.append) {
         setSearchResults((prev) => [...prev, ...res.items]);
         setSearchNextToken(res.nextPageToken);
@@ -803,7 +801,7 @@ clearNavState();
         setSearchNextToken(res.nextPageToken);
         setSearchActiveQuery(res.query || q);
         setSearchMode(true);
-        setSearchOpen(false);
+        setSearchModalOpen(false);
         setView("files");
       }
     } catch (e) {
@@ -854,14 +852,14 @@ clearNavState();
   }
 
   function openSearchHit(item: FileItem) {
-    setSearchOpen(false);
+    setSearchModalOpen(false);
     if (item.isFolder) {
       setSearchMode(false);
       setTrail([{ id: item.id, name: item.name }]);
       void loadFiles(item.id);
       return;
     }
-    if (isImagePreviewable(item)) void openImageFile(item);
+    if (isImagePreviewable(item) || isVideoPreviewable(item) || isPdfPreviewable(item)) void openImageFile(item);
     else if (isTextPreviewable(item)) void openTextFile(item);
     else window.open(fileDownloadUrl(item.id, item), "_blank", "noopener,noreferrer");
   }
@@ -1425,27 +1423,21 @@ void loadFiles(folderId);
     };
   }, []);
 
+  // Ctrl/Cmd+K toggles the search modal (Spotlight-style)
   useEffect(() => {
-    function onDocPointer(e: MouseEvent) {
-      if (!searchBoxRef.current) return;
-      if (!searchBoxRef.current.contains(e.target as Node)) {
-        setSearchOpen(false);
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchModalOpen((v) => !v);
       }
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setSearchOpen(false);
-    }
-    document.addEventListener("mousedown", onDocPointer);
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocPointer);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   function goCrumb(index: number) {
     setSearchMode(false);
-    setSearchOpen(false);
+    setSearchModalOpen(false);
     if (index < 0) {
       setTrail([]);
       void loadFiles(undefined);
@@ -1973,111 +1965,34 @@ void loadFiles(folderId);
               </>
             )}
           </nav>
-          <div className="search-box" ref={searchBoxRef}>
-            <div className="search-field">
+          <div className="search-box">
+            <button
+              type="button"
+              className={`search-trigger${searchMode ? " is-active" : ""}`}
+              onClick={() => setSearchModalOpen(true)}
+              aria-label="Search files"
+              aria-haspopup="dialog"
+            >
               <IconSearch size={15} />
-              <input
-                type="search"
-                className="search-input"
-                placeholder="Search files…"
-                value={searchQ}
-                aria-label="Search files"
-                aria-expanded={searchOpen}
-                aria-controls="search-suggest"
-                onFocus={() => {
-                  if (searchSuggest.length > 0 || searchError) setSearchOpen(true);
-                }}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSearchQ(v);
-                  scheduleSuggest(v, searchScope);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    submitFullSearch();
-                  } else if (e.key === "Escape") {
-                    setSearchOpen(false);
-                  }
-                }}
-              />
-              {searchLoading && <span className="search-spinner" aria-hidden="true" />}
-              {(searchQ || searchMode) && (
-                <button
-                  type="button"
-                  className="search-clear"
-                  title="Clear search"
-                  aria-label="Clear search"
-                  onClick={() => {
-                    setSearchQ("");
-                    exitSearchMode();
-                    void loadFiles(folderId);
-                  }}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <div className="search-scope" role="group" aria-label="Search scope">
+              <span className="search-trigger-label">
+                {searchMode ? `“${searchActiveQuery}”` : "Search"}
+              </span>
+              <kbd className="search-trigger-kbd" aria-hidden="true">Ctrl K</kbd>
+            </button>
+            {searchMode && (
               <button
                 type="button"
-                className={searchScope === "folder" ? "is-active" : ""}
+                className="search-clear"
+                title="Clear search"
+                aria-label="Clear search"
                 onClick={() => {
-                  setSearchScope("folder");
-                  if (searchQ.trim().length >= 2) scheduleSuggest(searchQ, "folder");
+                  setSearchQ("");
+                  exitSearchMode();
+                  void loadFiles(folderId);
                 }}
               >
-                Folder
+                ×
               </button>
-              <button
-                type="button"
-                className={searchScope === "drive" ? "is-active" : ""}
-                onClick={() => {
-                  setSearchScope("drive");
-                  if (searchQ.trim().length >= 2) scheduleSuggest(searchQ, "drive");
-                }}
-              >
-                Drive
-              </button>
-            </div>
-            {searchOpen && (
-              <div className="search-dropdown" id="search-suggest" role="listbox">
-                {searchError && <div className="search-empty">{searchError}</div>}
-                {!searchError && searchLoading && searchSuggest.length === 0 && (
-                  <div className="search-empty">Searching…</div>
-                )}
-                {!searchError && !searchLoading && searchSuggest.length === 0 && searchQ.trim().length >= 2 && (
-                  <div className="search-empty">No matches</div>
-                )}
-                {searchSuggest.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="search-hit"
-                    role="option"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => openSearchHit(item)}
-                  >
-                    <span className={iconBoxClass(fileKind(item))} aria-hidden="true">
-                      <FileTypeIcon item={item} />
-                    </span>
-                    <span className="search-hit-meta">
-                      <span className="search-hit-name">{item.name}</span>
-                      <span className="search-hit-kind">{fileKindLabel(fileKind(item))}</span>
-                    </span>
-                  </button>
-                ))}
-                {searchQ.trim().length >= 2 && (
-                  <button
-                    type="button"
-                    className="search-more"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => submitFullSearch()}
-                  >
-                    View all results for “{searchQ.trim()}”
-                  </button>
-                )}
-              </div>
             )}
           </div>
           <div className="top-meta">
@@ -2930,6 +2845,120 @@ void loadFiles(folderId);
                   {editor.saving ? "Saving…" : "Save"}
                 </button>
               </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {searchModalOpen && (
+        <>
+          <div className="search-modal-overlay" onClick={() => setSearchModalOpen(false)} />
+          <div className="search-modal" role="dialog" aria-modal="true" aria-label="Search files">
+            <div className="search-modal-head">
+              <IconSearch size={18} />
+              <input
+                type="search"
+                className="search-modal-input"
+                placeholder={searchScope === "folder" ? "Search this folder…" : "Search Drive…"}
+                value={searchQ}
+                autoFocus
+                aria-label="Search files"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSearchQ(v);
+                  scheduleSuggest(v, searchScope);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitFullSearch();
+                  } else if (e.key === "Escape") {
+                    setSearchModalOpen(false);
+                  }
+                }}
+              />
+              {searchLoading && <span className="search-spinner" aria-hidden="true" />}
+              {searchQ && (
+                <button
+                  type="button"
+                  className="search-clear"
+                  title="Clear"
+                  aria-label="Clear"
+                  onClick={() => {
+                    setSearchQ("");
+                    setSearchSuggest([]);
+                    setSearchError(null);
+                  }}
+                >
+                  ×
+                </button>
+              )}
+              <button
+                type="button"
+                className="search-modal-cancel"
+                onClick={() => setSearchModalOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="search-modal-scope" role="group" aria-label="Search scope">
+              <button
+                type="button"
+                className={searchScope === "drive" ? "is-active" : ""}
+                onClick={() => {
+                  setSearchScope("drive");
+                  if (searchQ.trim().length >= 2) scheduleSuggest(searchQ, "drive");
+                }}
+              >
+                Whole Drive
+              </button>
+              <button
+                type="button"
+                className={searchScope === "folder" ? "is-active" : ""}
+                onClick={() => {
+                  setSearchScope("folder");
+                  if (searchQ.trim().length >= 2) scheduleSuggest(searchQ, "folder");
+                }}
+              >
+                This folder
+              </button>
+            </div>
+            <div className="search-modal-results" role="listbox" aria-label="Search results">
+              {searchQ.trim().length < 2 && !searchError && (
+                <div className="search-empty">Type at least 2 characters to search…</div>
+              )}
+              {searchError && <div className="search-empty">{searchError}</div>}
+              {!searchError && searchLoading && searchSuggest.length === 0 && searchQ.trim().length >= 2 && (
+                <div className="search-empty">Searching…</div>
+              )}
+              {!searchError && !searchLoading && searchSuggest.length === 0 && searchQ.trim().length >= 2 && (
+                <div className="search-empty">No matches</div>
+              )}
+              {searchSuggest.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="search-hit"
+                  role="option"
+                  onClick={() => openSearchHit(item)}
+                >
+                  <span className={iconBoxClass(fileKind(item))} aria-hidden="true">
+                    <FileTypeIcon item={item} />
+                  </span>
+                  <span className="search-hit-meta">
+                    <span className="search-hit-name">{item.name}</span>
+                    <span className="search-hit-kind">
+                      {fileKindLabel(fileKind(item))}
+                      {item.size != null && !item.isFolder ? ` · ${formatBytes(item.size)}` : ""}
+                    </span>
+                  </span>
+                </button>
+              ))}
+              {searchQ.trim().length >= 2 && searchSuggest.length > 0 && (
+                <button type="button" className="search-more" onClick={() => submitFullSearch()}>
+                  View all results for “{searchQ.trim()}”
+                </button>
+              )}
             </div>
           </div>
         </>

@@ -373,9 +373,8 @@ html[data-theme="light"] {
   /* Type filter: horizontal scroll */
   .type-filter-row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-  /* Compact search on mobile */
+  /* Compact search trigger on mobile */
   .search-box { flex: 1; min-width: 0; }
-  .search-scope { display: none; }
 
   /* Table → mobile list layout lives in demo.css (@media max-width:900px),
      which owns the shell/topbar/toolbar responsive rules. Keeping it in one
@@ -943,6 +942,182 @@ html[data-theme="dark"] .nav-item.is-active {
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ---- Search: topbar trigger + Spotlight-style modal ---- */
+.search-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-ui) var(--ease-out),
+    box-shadow var(--dur-ui) var(--ease-out),
+    color var(--dur-ui) var(--ease-out);
+}
+.search-trigger:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.search-trigger.is-active {
+  border-color: var(--accent, #3b82f6);
+  color: var(--text);
+}
+.search-trigger-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-trigger-kbd {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.search-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: search-fade-in 0.16s var(--ease-out);
+}
+@keyframes search-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.search-modal {
+  position: fixed;
+  z-index: 91;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 32px));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
+  animation: search-modal-in 0.18s var(--ease-out);
+}
+@keyframes search-modal-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+.search-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.search-modal-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.02rem;
+}
+.search-modal-input::placeholder { color: var(--muted); }
+.search-modal-input::-webkit-search-cancel-button { display: none; }
+.search-modal-cancel {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent, #2563eb);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.search-modal-cancel:hover { background: var(--surface-2); }
+
+.search-modal-scope {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.search-modal-scope button {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background var(--dur-ui) var(--ease-out),
+    color var(--dur-ui) var(--ease-out),
+    border-color var(--dur-ui) var(--ease-out);
+}
+.search-modal-scope button.is-active {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, transparent);
+  color: var(--accent-ink, var(--accent, #2563eb));
+}
+
+.search-modal-results {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 8px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.search-modal-results .search-empty {
+  padding: 28px 12px;
+  text-align: center;
+}
+.search-modal-results .search-hit { padding: 10px; }
+.search-modal-results .search-more { padding: 12px 10px 8px; }
+
+@media (max-width: 900px) {
+  /* Mobile: sheet pinned near the top, full width, keyboard-friendly */
+  .search-modal {
+    top: max(12px, env(safe-area-inset-top));
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+    border-radius: 14px;
+  }
+  .search-modal-head { padding: 12px 12px; }
+  .search-trigger-kbd { display: none; }
 }
 
 /* ---- V2 fallbacks, mirroring the base glass layer ---- */
