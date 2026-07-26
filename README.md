@@ -119,6 +119,7 @@ cd web && npx tsc --noEmit
 ## Documentation
 
 - [API Contract](docs/api-contract.md)
+- [Agent Skill — operate the drive via API](SKILL.md)
 - [Design Spec](docs/spark/2026-07-21-drive-backup-console-design.md)
 - [Agent File API Design](docs/spark/2026-07-23-agent-file-api-design.md)
 - [Docker Deployment](docs/docker.md)
