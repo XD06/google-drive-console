@@ -1214,13 +1214,17 @@ void loadFiles(folderId);
     return { id: imagePreview.id, name: imagePreview.name, mimeType: "", size: null, modifiedTime: "", isFolder: false } as FileItem;
   }, [imagePreview, items]);
 
-  // Previewable media list for prev/next navigation (same order user sees)
+  // Prev/next navigation cycles only within the same media kind as the open
+  // file (images ↔ images, videos ↔ videos, PDFs ↔ PDFs) — same order user sees.
   const previewableList = useMemo(() => {
+    if (!lightboxItem) return [];
+    const kindOf = (it: FileItem) =>
+      isImagePreviewable(it) ? "image" : isVideoPreviewable(it) ? "video" : isPdfPreviewable(it) ? "pdf" : null;
+    const kind = kindOf(lightboxItem);
+    if (!kind) return [];
     const source = searchMode ? searchResults : filteredItems;
-    return sortItems(source).filter(
-      (it) => !it.isFolder && (isImagePreviewable(it) || isVideoPreviewable(it) || isPdfPreviewable(it)),
-    );
-  }, [searchMode, searchResults, filteredItems, sortKey, sortDir]);
+    return sortItems(source).filter((it) => !it.isFolder && kindOf(it) === kind);
+  }, [lightboxItem, searchMode, searchResults, filteredItems, sortKey, sortDir]);
 
   const lightboxIndex = useMemo(() => {
     if (!imagePreview) return -1;

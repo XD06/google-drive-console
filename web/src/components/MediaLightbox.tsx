@@ -183,23 +183,36 @@ export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev,
     }
     setVideoSpeed(null);
     if (!el) return;
+    // Show the badge immediately while the video is still buffering —
+    // speed becomes measurable once metadata + first data arrive.
+    setVideoSpeed("…");
     let lastFrac = 0;
     let lastTime = performance.now();
     speedTracker.current.timer = setInterval(() => {
-      if (!el.buffered.length || !el.duration || !isFinite(el.duration)) return;
-      const frac = el.buffered.end(el.buffered.length - 1) / el.duration;
       const now = performance.now();
       const dt = (now - lastTime) / 1000;
       if (dt <= 0) return;
+      if (!el.buffered.length || !el.duration || !isFinite(el.duration)) {
+        // Still waiting for metadata/first bytes — keep the placeholder up.
+        setVideoSpeed("…");
+        return;
+      }
+      const frac = el.buffered.end(el.buffered.length - 1) / el.duration;
       const fracDelta = frac - lastFrac;
       lastFrac = frac;
       lastTime = now;
       const size = videoSizeRef.current;
-      if (size && size > 0 && fracDelta > 0) {
+      if (frac >= 0.999) {
+        // Fully buffered — nothing left to download.
+        setVideoSpeed(null);
+      } else if (size && size > 0 && fracDelta > 0) {
         // bytes downloaded ≈ buffered-fraction delta × total file size
         setVideoSpeed(formatSpeed((fracDelta * size) / dt));
+      } else if (el.readyState < 3) {
+        // Stalled / rebuffering — keep badge visible so user sees it's loading.
+        setVideoSpeed("…");
       } else {
-        // Idle (fully buffered / paused download / unknown size) — hide badge
+        // Playable and download idle (browser throttling preload) — hide.
         setVideoSpeed(null);
       }
     }, 1000);
@@ -265,13 +278,14 @@ export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev,
           onTouchEnd={isImage ? onTouchEnd : onBodyTouchEnd}
           onTouchCancel={isImage ? onTouchEnd : undefined}
         >
-          {/* Navigation arrows */}
-          {hasPrev && onPrev && (
+          {/* Navigation arrows — hidden for video: they overlap the player and
+              its native controls; keyboard ←/→ and swipe still navigate. */}
+          {hasPrev && onPrev && !isVideo && (
             <button type="button" className="lightbox-nav lightbox-nav-prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); onPrev(); }}>
               <IconChevronLeft size={28} />
             </button>
           )}
-          {hasNext && onNext && (
+          {hasNext && onNext && !isVideo && (
             <button type="button" className="lightbox-nav lightbox-nav-next" aria-label="Next" onClick={(e) => { e.stopPropagation(); onNext(); }}>
               <IconChevronRight size={28} />
             </button>

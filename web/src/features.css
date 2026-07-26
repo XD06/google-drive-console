@@ -214,7 +214,7 @@ html[data-theme="light"] {
   background: var(--surface-2);
 }
 .lightbox-video {
-  max-width: 90%; max-height: 90%; border-radius: 8px;
+  max-width: 100%; max-height: min(76vh, 100%); border-radius: 8px;
 }
 .lightbody-zoom { overflow: hidden; cursor: grab; }
 .lightbox-zoom-label { font-size: 0.8rem; color: var(--muted); }
@@ -480,18 +480,20 @@ body { overscroll-behavior-y: contain; }
 }
 
 /* --- Video wrapper & speed badge --- */
+/* The wrap shrinks to the video's rendered box so the absolutely-positioned
+   speed badge anchors to the video's corner, not the whole preview area. */
 .lightbox-video-wrap {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
 }
 .lightbox-video-speed {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 8px;
+  right: 8px;
   padding: 4px 12px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);
