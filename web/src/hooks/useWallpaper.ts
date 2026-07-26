@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useLocalStorage } from "./useLocalStorage";
 
-export type WallpaperId = "aurora" | "sakura" | "minimal";
+export type WallpaperId = "aurora" | "sakura" | "photo" | "minimal";
 
 /**
  * Wallpaper behind the glass panels (Settings → Appearance).

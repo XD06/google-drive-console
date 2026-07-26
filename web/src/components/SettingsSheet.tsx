@@ -16,7 +16,7 @@ export type Prefs = {
 };
 
 export type ThemeMode = "auto" | "light" | "dark";
-export type WallpaperId = "aurora" | "sakura" | "minimal";
+export type WallpaperId = "aurora" | "sakura" | "photo" | "minimal";
 
 export type SettingsSheetProps = {
   open: boolean;
@@ -109,14 +109,14 @@ export function SettingsSheet({
                 <span>Backdrop behind the glass panels</span>
               </span>
               <div className="theme-toggle-group">
-                {(["aurora", "sakura", "minimal"] as WallpaperId[]).map((w) => (
+                {(["aurora", "sakura", "photo", "minimal"] as WallpaperId[]).map((w) => (
                   <button
                     key={w}
                     type="button"
                     className={`theme-toggle-btn${wallpaper === w ? " is-active" : ""}`}
                     onClick={() => onWallpaperChange(w)}
                   >
-                    {w === "aurora" ? "Aurora" : w === "sakura" ? "Sakura" : "Minimal"}
+                    {w === "aurora" ? "Aurora" : w === "sakura" ? "Sakura" : w === "photo" ? "Photo" : "Minimal"}
                   </button>
                 ))}
               </div>

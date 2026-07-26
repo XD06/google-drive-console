@@ -1344,7 +1344,8 @@ html[data-theme="dark"] .nav-item.is-active {
    the original animated field. Theme picks the light/dark asset.
    ============================================================ */
 html[data-wallpaper="aurora"] body::before,
-html[data-wallpaper="sakura"] body::before {
+html[data-wallpaper="sakura"] body::before,
+html[data-wallpaper="photo"] body::before {
   inset: 0;
   animation: none;
   will-change: auto;
@@ -1352,12 +1353,21 @@ html[data-wallpaper="sakura"] body::before {
   background-position: center;
 }
 html[data-wallpaper="aurora"] body::after,
-html[data-wallpaper="sakura"] body::after { display: none; }
+html[data-wallpaper="sakura"] body::after,
+html[data-wallpaper="photo"] body::after { display: none; }
+
+/* body::before sits at z-index -1, which paints BELOW body's own
+   background gradient — the wallpaper is invisible unless the body
+   background is cleared in wallpaper modes (both themes). */
+html[data-wallpaper="aurora"] body,
+html[data-wallpaper="sakura"] body,
+html[data-wallpaper="photo"] body { background: none; }
 
 html[data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-light.svg?v=2"); }
 html[data-theme="dark"][data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-dark.svg?v=2"); }
 html[data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-light.svg?v=2"); }
 html[data-theme="dark"][data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-dark.svg?v=2"); }
+html[data-wallpaper="photo"] body::before { background-image: url("/wallpapers/photo-1.jpg"); }
 
 /* Wallpaper modes let far more colour through the panels.
    The pastel wallpapers are pre-tinted, so the glass must not
@@ -1374,6 +1384,29 @@ html[data-theme="dark"]:not([data-wallpaper="minimal"]) {
 }
 html:not([data-wallpaper="minimal"]) {
   --glass-frost: saturate(125%) blur(30px);
+}
+
+/* Photo wallpaper: mimic the reference shots — the app floats as a
+   glass card with a generous frame of sharp wallpaper around it, and
+   the blur stays moderate so shapes remain readable through the glass. */
+html[data-theme="light"][data-wallpaper="photo"] {
+  --sidebar-fill: rgba(255, 255, 255, 0.22);
+  --workspace-fill: rgba(255, 255, 255, 0.44);
+  --blur: saturate(140%) blur(24px);
+}
+html[data-theme="dark"][data-wallpaper="photo"] {
+  --sidebar-fill: rgba(18, 20, 28, 0.34);
+  --workspace-fill: rgba(14, 16, 24, 0.46);
+  --blur: saturate(135%) blur(26px);
+}
+html[data-wallpaper="photo"] {
+  --glass-frost: saturate(150%) blur(22px);
+}
+@media (min-width: 901px) {
+  html[data-wallpaper="photo"] .shell {
+    padding: 32px 40px;
+    gap: 16px;
+  }
 }
 
 /* Mobile: topbar/toolbar were 78% solid — let the wallpaper glow through */
