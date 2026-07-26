@@ -1120,6 +1120,223 @@ html[data-theme="dark"] .nav-item.is-active {
   .search-trigger-kbd { display: none; }
 }
 
+/* ============================================================
+   API Keys — settings panel section
+   ============================================================ */
+
+.apikey-desc {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.apikey-desc code {
+  font-size: 0.74rem;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+/* One-time token reveal */
+.apikey-token-box {
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 40%, transparent);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.apikey-token-warn {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-ink, var(--accent, #2563eb));
+  margin-bottom: 8px;
+}
+.apikey-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.apikey-token {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: all;
+  -webkit-overflow-scrolling: touch;
+}
+.apikey-copy {
+  flex-shrink: 0;
+}
+.apikey-token-dismiss {
+  margin-top: 8px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.apikey-token-dismiss:hover { color: var(--text); text-decoration: underline; }
+
+/* Key rows */
+.apikey-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.apikey-row:last-of-type { border-bottom: none; }
+.apikey-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.apikey-row-main strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apikey-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.apikey-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.apikey-scope {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.apikey-scope.is-read {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.apikey-scope.is-readwrite {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 40%, transparent);
+  color: var(--accent-ink, var(--accent, #2563eb));
+}
+.apikey-revoke { flex-shrink: 0; color: #e5484d; }
+.apikey-revoke:hover {
+  background: color-mix(in srgb, #e5484d 12%, transparent);
+  color: #e5484d;
+}
+
+.apikey-empty,
+.apikey-revoked-note {
+  font-size: 0.76rem;
+  color: var(--muted);
+  padding: 8px 0;
+}
+.apikey-error {
+  font-size: 0.76rem;
+  color: #e5484d;
+  padding: 6px 0;
+}
+
+/* Create form */
+.apikey-new {
+  margin-top: 10px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  width: 100%;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-ui) var(--ease-out),
+    color var(--dur-ui) var(--ease-out);
+}
+.apikey-new:hover { border-color: var(--accent, #3b82f6); color: var(--accent-ink, var(--accent, #2563eb)); }
+
+.apikey-form {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.apikey-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  outline: none;
+}
+.apikey-input:focus { border-color: color-mix(in srgb, var(--accent, #3b82f6) 55%, transparent); }
+
+.apikey-form-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.apikey-scope-group {
+  display: flex;
+  gap: 6px;
+}
+.apikey-scope-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background var(--dur-ui) var(--ease-out),
+    color var(--dur-ui) var(--ease-out),
+    border-color var(--dur-ui) var(--ease-out);
+}
+.apikey-scope-btn.is-active {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, transparent);
+  color: var(--accent-ink, var(--accent, #2563eb));
+}
+.apikey-form-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.apikey-create:disabled { opacity: 0.5; cursor: default; }
+
+
 /* ---- V2 fallbacks, mirroring the base glass layer ---- */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .settings-sheet { background: var(--surface); }

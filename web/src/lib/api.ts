@@ -983,3 +983,45 @@ export async function downloadMultiZip(items: { id: string; name: string }[]): P
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ---- API keys (/api/v1/keys, session-only management) ----
+
+export type ApiKeyScope = "read" | "readwrite";
+
+export type ApiKeyItem = {
+  id: string;
+  name: string;
+  hint: string;
+  scope: ApiKeyScope;
+  createdAt: string;
+  lastUsedAt?: string;
+  revoked: boolean;
+};
+
+export type CreatedApiKey = ApiKeyItem & { token: string };
+
+export async function listApiKeys(): Promise<ApiKeyItem[]> {
+  const res = await fetch("/api/v1/keys", { credentials: "include" });
+  if (!res.ok) throw await parseError(res, "keys_list");
+  const body = (await res.json()) as { keys: ApiKeyItem[] };
+  return body.keys ?? [];
+}
+
+export async function createApiKey(name: string, scope: ApiKeyScope): Promise<CreatedApiKey> {
+  const res = await fetch("/api/v1/keys", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, scope }),
+  });
+  if (!res.ok) throw await parseError(res, "keys_create");
+  return res.json() as Promise<CreatedApiKey>;
+}
+
+export async function revokeApiKey(id: string): Promise<void> {
+  const res = await fetch(`/api/v1/keys/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok && res.status !== 204) throw await parseError(res, "keys_revoke");
+}

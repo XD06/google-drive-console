@@ -1,6 +1,6 @@
 ---
 name: drive-backup-console-api
-description: Operate a self-hosted Drive Backup Console (Google Drive gateway) through its /api/v1 REST API — browse folders, search, read/write text files, upload files of any size, download, share, trash/move/copy, ZIP folders. Use when an agent needs programmatic file storage on the user's Google Drive via an API key, or when the user mentions the Drive Backup Console, dbk_ API keys, or /api/v1 file operations.
+description: Operate a self-hosted Drive Backup Console (Google Drive gateway) through its /api/v1 REST API — browse folders, search, read/write text files, upload files of any size, download, share, trash/move/copy, ZIP folders. Use when an agent needs programmatic file storage on the user's Google Drive via an API key, or when the user mentions the Drive Backup Console, dbc_ API keys, or /api/v1 file operations.
 ---
 
 # Drive Backup Console API
@@ -11,13 +11,13 @@ Self-hosted gateway to the user's Google Drive. All operations go through
 ## Setup
 
 1. **Get an API key** — keys are minted with a browser session (cookie auth):
-   `POST /api/v1/keys` with `{"name":"agent","scope":"readwrite"}` → the token
-   (`dbk_…`) is returned **once** in the `token` field. Ask the user to run this from
-   their logged-in browser (DevTools fetch) if no key exists yet.
+   the user creates one in the Web UI under **Settings → API Keys**, or via
+   `POST /api/v1/keys` with `{"name":"agent","scope":"readwrite"}`. The token
+   (`dbc_…`) is shown **once** at creation. Ask the user for it if no key exists yet.
 2. **Authenticate every request**:
 
 ```bash
-curl -H "Authorization: Bearer dbk_xxx" {BASE_URL}/api/v1/files
+curl -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/files
 ```
 
 Scopes: `read` (list/search/download/status) or `readwrite` (everything).
@@ -69,7 +69,7 @@ Fetch it when an endpoint's exact schema is needed.
 **≤5 MiB — one request:**
 
 ```bash
-curl -X POST -H "Authorization: Bearer dbk_xxx" \
+curl -X POST -H "Authorization: Bearer dbc_xxx" \
   --data-binary @photo.jpg \
   "{BASE_URL}/api/v1/files/simple?name=photo.jpg&parentId=root&mimeType=image/jpeg"
 # → 201 FileItem
@@ -79,13 +79,13 @@ curl -X POST -H "Authorization: Bearer dbk_xxx" \
 
 ```bash
 # 1. Create job (size in bytes is required and must be exact)
-curl -X POST -H "Authorization: Bearer dbk_xxx" -H "Content-Type: application/json" \
+curl -X POST -H "Authorization: Bearer dbc_xxx" -H "Content-Type: application/json" \
   -d '{"name":"backup.zip","size":104857600,"parentId":"root","mimeType":"application/zip"}' \
   {BASE_URL}/api/v1/uploads
 # → 201 { "uploadId": "up_xxx", "status": "pending", … }
 
 # 2. Send sequential chunks (max 32 MiB each; last one may be smaller)
-curl -X PUT -H "Authorization: Bearer dbk_xxx" \
+curl -X PUT -H "Authorization: Bearer dbc_xxx" \
   -H "X-Upload-Offset: 0" --data-binary @chunk0 \
   {BASE_URL}/api/v1/uploads/up_xxx/chunk
 # → 200 { "bytesReceived": 33554432, "status": "uploading", … }
@@ -103,7 +103,7 @@ Rules:
 ## Downloading
 
 ```bash
-curl -H "Authorization: Bearer dbk_xxx" -o out.bin \
+curl -H "Authorization: Bearer dbc_xxx" -o out.bin \
   {BASE_URL}/api/v1/files/{id}/download
 ```
 
