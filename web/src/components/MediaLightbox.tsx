@@ -218,15 +218,6 @@ export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev,
     }, 1000);
   }, []);
 
-  useEffect(() => {
-    // Reset speed when preview changes
-    setVideoSpeed(null);
-    if (speedTracker.current.timer) {
-      clearInterval(speedTracker.current.timer);
-      speedTracker.current.timer = null;
-    }
-  }, [preview?.id]);
-
   if (!preview) return null;
 
   const isImage = item ? isImagePreviewable(item) : false;
@@ -308,7 +299,9 @@ export function MediaLightbox({ preview, item, onClose, onPrev, onNext, hasPrev,
           )}
           {isVideo && !preview.loading && (
             <div className="lightbox-video-wrap">
-              <video ref={onVideoRef} className="lightbox-video" src={fileDownloadUrl(preview.id, item ?? undefined)} controls autoPlay />
+              {/* key forces a remount per file so the ref callback re-runs and
+                  the speed tracker starts fresh for each video. */}
+              <video key={preview.id} ref={onVideoRef} className="lightbox-video" src={fileDownloadUrl(preview.id, item ?? undefined)} controls autoPlay />
               {videoSpeed && <span className="lightbox-video-speed">{videoSpeed}</span>}
             </div>
           )}
