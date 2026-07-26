@@ -1354,10 +1354,10 @@ html[data-wallpaper="sakura"] body::before {
 html[data-wallpaper="aurora"] body::after,
 html[data-wallpaper="sakura"] body::after { display: none; }
 
-html[data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-light.svg"); }
-html[data-theme="dark"][data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-dark.svg"); }
-html[data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-light.svg"); }
-html[data-theme="dark"][data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-dark.svg"); }
+html[data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-light.svg?v=2"); }
+html[data-theme="dark"][data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-dark.svg?v=2"); }
+html[data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-light.svg?v=2"); }
+html[data-theme="dark"][data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-dark.svg?v=2"); }
 
 /* Wallpaper modes let far more colour through the panels.
    The pastel wallpapers are pre-tinted, so the glass must not

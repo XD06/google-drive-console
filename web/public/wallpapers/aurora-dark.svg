@@ -24,8 +24,8 @@
     </filter>
   </defs>
   <rect width="1600" height="1000" fill="url(#base)"/>
-  <ellipse cx="180" cy="120" rx="820" ry="620" fill="url(#g1)"/>
-  <ellipse cx="1480" cy="900" rx="780" ry="600" fill="url(#g2)"/>
-  <ellipse cx="220" cy="960" rx="620" ry="440" fill="url(#g3)"/>
+  <ellipse cx="180" cy="120" rx="900" ry="680" fill="url(#g1)"/>
+  <ellipse cx="1480" cy="900" rx="860" ry="660" fill="url(#g2)"/>
+  <ellipse cx="220" cy="960" rx="680" ry="480" fill="url(#g3)"/>
   <rect width="1600" height="1000" filter="url(#noise)"/>
 </svg>
