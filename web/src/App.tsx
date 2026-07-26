@@ -82,6 +82,7 @@ import { ToastHost } from "./components/ToastHost";
 import { UploadToastHost } from "./components/UploadToastHost";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useTheme } from "./hooks/useTheme";
+import { useWallpaper } from "./hooks/useWallpaper";
 
 // Code-split heavy overlays: they load on first open, keeping the initial
 // bundle (and thus first paint / folder list) lean.
@@ -191,6 +192,7 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [prefs, setPrefs] = useLocalStorage("dbc.prefs", { banner: true, uploadToast: true, compact: false, autoDismiss: true });
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
+  const { wallpaper, setWallpaper } = useWallpaper();
   const [view, setView] = useState<"files" | "overview">("files");
   const [navOpen, setNavOpen] = useState(false);
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
@@ -2986,9 +2988,11 @@ void loadFiles(folderId);
             email={email || ""}
             busy={busy}
             themeMode={themeMode}
+            wallpaper={wallpaper}
             onClose={() => setSettingsOpen(false)}
             onPrefsChange={setPrefs}
             onThemeChange={setThemeMode}
+            onWallpaperChange={setWallpaper}
             onLogout={() => void onLogout()}
             onBannerEnabled={() => {
               setTimeout(() => showToast("Banner alerts on", false, "Settings"), 0);

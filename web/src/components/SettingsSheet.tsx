@@ -16,6 +16,7 @@ export type Prefs = {
 };
 
 export type ThemeMode = "auto" | "light" | "dark";
+export type WallpaperId = "aurora" | "sakura" | "minimal";
 
 export type SettingsSheetProps = {
   open: boolean;
@@ -23,9 +24,11 @@ export type SettingsSheetProps = {
   email: string;
   busy: boolean;
   themeMode: ThemeMode;
+  wallpaper: WallpaperId;
   onClose: () => void;
   onPrefsChange: (next: Prefs) => void;
   onThemeChange: (mode: ThemeMode) => void;
+  onWallpaperChange: (w: WallpaperId) => void;
   onLogout: () => void;
   onBannerEnabled?: () => void;
 };
@@ -36,9 +39,11 @@ export function SettingsSheet({
   email,
   busy,
   themeMode,
+  wallpaper,
   onClose,
   onPrefsChange,
   onThemeChange,
+  onWallpaperChange,
   onLogout,
   onBannerEnabled,
 }: SettingsSheetProps) {
@@ -94,6 +99,24 @@ export function SettingsSheet({
                     onClick={() => onThemeChange(m)}
                   >
                     {m === "auto" ? "Auto" : m === "light" ? "Light" : "Dark"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="settings-row">
+              <span className="settings-row-text">
+                <strong>Wallpaper</strong>
+                <span>Backdrop behind the glass panels</span>
+              </span>
+              <div className="theme-toggle-group">
+                {(["aurora", "sakura", "minimal"] as WallpaperId[]).map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    className={`theme-toggle-btn${wallpaper === w ? " is-active" : ""}`}
+                    onClick={() => onWallpaperChange(w)}
+                  >
+                    {w === "aurora" ? "Aurora" : w === "sakura" ? "Sakura" : "Minimal"}
                   </button>
                 ))}
               </div>

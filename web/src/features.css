@@ -1336,6 +1336,59 @@ html[data-theme="dark"] .nav-item.is-active {
 }
 .apikey-create:disabled { opacity: 0.5; cursor: default; }
 
+/* ============================================================
+   WALLPAPER LAYER (Settings → Appearance → Wallpaper)
+   The glass panels only read as glass when there is a rich
+   colour field behind them. "aurora" / "sakura" swap the animated
+   gradient blobs for a fixed SVG mesh wallpaper; "minimal" keeps
+   the original animated field. Theme picks the light/dark asset.
+   ============================================================ */
+html[data-wallpaper="aurora"] body::before,
+html[data-wallpaper="sakura"] body::before {
+  inset: 0;
+  animation: none;
+  will-change: auto;
+  background-size: cover;
+  background-position: center;
+}
+html[data-wallpaper="aurora"] body::after,
+html[data-wallpaper="sakura"] body::after { display: none; }
+
+html[data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-light.svg"); }
+html[data-theme="dark"][data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-dark.svg"); }
+html[data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-light.svg"); }
+html[data-theme="dark"][data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-dark.svg"); }
+
+/* Wallpaper modes let far more colour through the panels */
+html[data-theme="light"]:not([data-wallpaper="minimal"]) {
+  --sidebar-fill: rgba(255, 255, 255, 0.24);
+  --workspace-fill: rgba(255, 255, 255, 0.34);
+}
+html[data-theme="dark"]:not([data-wallpaper="minimal"]) {
+  --sidebar-fill: rgba(30, 32, 44, 0.3);
+  --workspace-fill: rgba(22, 24, 34, 0.42);
+}
+
+/* Mobile: topbar/toolbar were 78% solid — let the wallpaper glow through */
+@media (max-width: 900px) {
+  html:not([data-wallpaper="minimal"]) .topbar,
+  html:not([data-wallpaper="minimal"]) .toolbar {
+    background: color-mix(in srgb, var(--surface) 55%, transparent);
+  }
+}
+
+/* Keep the accessibility / no-blur downgrades authoritative */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-theme="light"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #f4f6fb; --workspace-fill: #fbfcfe; }
+  html[data-theme="dark"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #1c1d24; --workspace-fill: #16171d; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme="light"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #f4f6fb; --workspace-fill: #fbfcfe; }
+  html[data-theme="dark"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #1c1d24; --workspace-fill: #16171d; }
+  html[data-wallpaper="aurora"] body::before,
+  html[data-wallpaper="sakura"] body::before { display: none; }
+}
+
 
 /* ---- V2 fallbacks, mirroring the base glass layer ---- */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
