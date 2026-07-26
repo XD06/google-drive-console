@@ -100,7 +100,7 @@ describe("listFiles", () => {
 
     const res = await listFiles({ folderId: "abc" });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/files?folderId=abc",
+      "/api/files?folderId=abc&pageSize=100",
       expect.objectContaining({ credentials: "include" }),
     );
     expect(res.items).toEqual([]);

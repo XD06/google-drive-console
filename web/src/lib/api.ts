@@ -91,6 +91,7 @@ export async function logout(clearToken = false): Promise<void> {
 export type ListFilesParams = {
   folderId?: string;
   pageToken?: string;
+  pageSize?: number;
 };
 
 export async function listFiles(
@@ -100,6 +101,10 @@ export async function listFiles(
   const sp = new URLSearchParams();
   if (params.folderId) sp.set("folderId", params.folderId);
   if (params.pageToken) sp.set("pageToken", params.pageToken);
+  // 100 per page (vs Drive's 50 default) halves the round-trips needed to
+  // fully load large folders; fields are trimmed server-side so the payload
+  // stays small.
+  sp.set("pageSize", String(params.pageSize ?? 100));
   const qs = sp.toString();
   const res = await fetch(`/api/files${qs ? `?${qs}` : ""}`, {
     credentials: "include",

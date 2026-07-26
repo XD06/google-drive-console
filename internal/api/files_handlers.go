@@ -44,7 +44,7 @@ func (h *FilesHandlers) factory() DriveFactory {
 	return defaultDriveFactory
 }
 
-// List handles GET /api/files?folderId=&pageToken=
+// List handles GET /api/files?folderId=&pageToken=&pageSize=
 func (h *FilesHandlers) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
@@ -59,9 +59,18 @@ func (h *FilesHandlers) List(w http.ResponseWriter, r *http.Request) {
 	if folderID == "" {
 		folderID = h.DefaultFolder
 	}
+	// Optional pageSize (clamped in client.List). Larger pages cut the number
+	// of Drive round-trips needed to fully load big folders.
+	pageSize := 0
+	if ps := strings.TrimSpace(r.URL.Query().Get("pageSize")); ps != "" {
+		if n, err := strconv.Atoi(ps); err == nil {
+			pageSize = n
+		}
+	}
 	res, err := client.List(r.Context(), drive.ListOptions{
 		FolderID:  folderID,
 		PageToken: r.URL.Query().Get("pageToken"),
+		PageSize:  pageSize,
 	})
 	if err != nil {
 		writeDriveError(w, err)

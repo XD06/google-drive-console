@@ -100,22 +100,21 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Job, error) {
 }
 
 // adaptiveFlushSize returns the optimal Drive flush size for a given file size.
-// < 200MB: 16 MiB (default), 200MB-1GB: 32 MiB, >1GB: 64 MiB.
+// < 200MB: 16 MiB (default), >200MB: 32 MiB.
+// 32 MiB is the ceiling on purpose: it matches MaxClientChunk, so every
+// client PUT fills exactly one flush and streams to Drive immediately.
+// A larger flush (e.g. 64 MiB) would buffer the first client chunk without
+// sending anything — a pipeline bubble — and double peak memory per job.
 // All values are multiples of ChunkMultiple (256 KiB).
 func adaptiveFlushSize(total int64) int64 {
 	const (
-		miB    = 1 << 20
+		miB        = 1 << 20
 		threshold1 = 200 * miB
-		threshold2 = 1024 * miB
 	)
-	switch {
-	case total > threshold2:
-		return 64 * miB
-	case total > threshold1:
+	if total > threshold1 {
 		return 32 * miB
-	default:
-		return drive.DefaultFlushSize
 	}
+	return drive.DefaultFlushSize
 }
 
 // Get returns job by id.
