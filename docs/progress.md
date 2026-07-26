@@ -1,5 +1,28 @@
 # Progress Log
 
+## 2026-07-25 — Docs refresh + repo tidy
+
+**Status:** complete
+
+- `api-contract.md` rewritten to match current router: search, copy, share/permissions, revisions, zip/multi-zip, thumbnail, batch, simple upload, `/api/v1` + API keys + OpenAPI; chunk max corrected to 32 MiB
+- README / DEV_WORKFLOW brought current (GitHub repo, agent API, commands)
+- Archived to `docs/archive/`: `google-services-dev-guide.md`, `docs/superpowers/`
+- Removed frozen mock demos: `web/demo/`, `web/demo-directions/`, `web/preview.html`
+
+---
+
+## 2026-07-23 → 07-25 — Post-v1 feature & perf rounds (summary)
+
+**Status:** complete — pushed to GitHub `XD06/drive-backup-console` (master)
+
+- feat: Spotlight-style search modal (Ctrl/Cmd+K, scope pills, 250ms suggest) — `84ea925`
+- perf: list `pageSize` passthrough, content-aware gzip, 32 MiB upload flush alignment — `469ba74`
+- feat: agent-ready `/api/v1` (API keys, scopes, OpenAPI), Docker multi-stage deploy
+- fix series: upload progress bar, streaming video/PDF preview, chunk retry with offset resume, lightbox navigation + video speed badge — `bec88f3`…`4ba26c9`
+- Verification: `go test ./...` pass · vitest 40/40 · `tsc --noEmit` clean
+
+---
+
 ## 2026-07-22 — Feature pack Tasks 1–8
 
 **Status:** complete (unit tests green; browser checklist manual)
@@ -95,7 +118,7 @@
 
 ---
 
-## 2026-07-21 鈥?React live files + upload UI
+## 2026-07-21 — React live files + upload UI
 
 **Status:** complete (client unit tests)
 
@@ -103,14 +126,14 @@
 
 - [x] API client: me, logout, listFiles, createUpload, putUploadChunk, uploadFile
 - [x] App: auth gate, file table, crumbs, download, Upload + progress bar
-- [x] `npm test` 鈥?9 tests pass; `tsc -b` clean
+- [x] `npm test` — 9 tests pass; `tsc -b` clean
 
 ### How to try
 
 1. API on `:3000` with `.env` + token
-2. `cd web && npm run dev` 鈫?`:5174`
+2. `cd web && npm run dev` → `:5174`
 3. Connect Google (proxy `/oauth2`) then reopen Vite if needed
-4. Browse Drive; Upload sends chunks 鈮? MiB
+4. Browse Drive; Upload sends chunks ≤5 MiB
 
 ### Next
 
@@ -118,7 +141,7 @@
 
 ---
 
-## 2026-07-21 鈥?React file browser (live API)
+## 2026-07-21 — React file browser (live API)
 
 **Status:** complete (unit-tested client; browser needs session cookie)
 
@@ -126,24 +149,24 @@
 
 - [x] `web/src/lib/api.ts`: `fetchMe`, `logout`, `listFiles`, `ApiError`, format helpers
 - [x] `App.tsx`: auth gate, Connect Google, file table, folder crumbs, download link, disconnect
-- [x] Vite proxy already maps `/api` + `/oauth2` 鈫?`:3000`
-- [x] `npm test` 鈥?7 tests pass
+- [x] Vite proxy already maps `/api` + `/oauth2` → `:3000`
+- [x] `npm test` — 7 tests pass
 
 ### Notes
 
-- After OAuth, callback lands on API `:3000/`; reopen Vite (`:5174`) 鈥?cookie is host-only on `localhost` (shared across ports).
+- After OAuth, callback lands on API `:3000/`; reopen Vite (`:5174`) — cookie is host-only on `localhost` (shared across ports).
 - Upload UI still pending.
 
 ---
 
-## 2026-07-21 鈥?Live upload API smoke
+## 2026-07-21 — Live upload API smoke
 
 **Status:** complete
 
 ### Done
 
-- [x] `POST /api/uploads` with session 鈫?201 pending job
-- [x] `PUT .../chunk` 66-byte text file 鈫?`status=completed` + Drive `fileId`
+- [x] `POST /api/uploads` with session → 201 pending job
+- [x] `PUT .../chunk` 66-byte text file → `status=completed` + Drive `fileId`
 - [x] File visible in `GET /api/files` (`dbc-smoke-*.txt`)
 
 ### Verification
@@ -156,12 +179,12 @@
 
 ### Notes
 
-- End-to-end path works: OAuth token 鈫?Drive resumable upload 鈫?list.
+- End-to-end path works: OAuth token → Drive resumable upload → list.
 - Next: React file table + upload UI.
 
 ---
 
-## 2026-07-21 鈥?Live OAuth smoke + home route
+## 2026-07-21 — Live OAuth smoke + home route
 
 **Status:** complete
 
@@ -169,16 +192,16 @@
 
 - [x] `.env` from Google client secret (gitignored) + `config.LoadDotEnv`
 - [x] Server `oauth=true` on `:3000`
-- [x] Browser Google consent 鈫?`data/token.json` for test user
-- [x] Fix post-login **404**: callback redirected to `/` with no route 鈫?added `GET /{$}` HTML home
-- [x] Live smoke: `/api/auth/me` + `/api/files` with session cookie 鈫?200 (Drive list OK)
+- [x] Browser Google consent → `data/token.json` for test user
+- [x] Fix post-login **404**: callback redirected to `/` with no route → added `GET /{$}` HTML home
+- [x] Live smoke: `/api/auth/me` + `/api/files` with session cookie → 200 (Drive list OK)
 
 ### Verification
 
 | Check | Result |
 |-------|--------|
 | OAuth exchange + token file | pass |
-| `GET /` after login | HTML 鈥淪igned in as 鈥︹€?(after fix) |
+| `GET /` after login | HTML “Signed in as …”(after fix) |
 | `GET /api/auth/me` | `connected:true` |
 | `GET /api/files` | folder items from Drive |
 | unit tests api/auth/config | pass |
@@ -191,7 +214,7 @@
 
 ---
 
-## 2026-07-21 鈥?Milestone 3: Resumable upload + progress
+## 2026-07-21 — Milestone 3: Resumable upload + progress
 
 **Status:** complete (unit-tested with mocked Drive; UI progress still optional)
 
@@ -225,7 +248,7 @@
 
 ---
 
-## 2026-07-21 鈥?Milestone 2: Drive list + download
+## 2026-07-21 — Milestone 2: Drive list + download
 
 **Status:** complete (unit-tested against mocked Drive HTTP)
 
@@ -252,7 +275,7 @@
 
 ---
 
-## 2026-07-21 鈥?Milestone 1: OAuth + session
+## 2026-07-21 — Milestone 1: OAuth + session
 
 **Status:** complete (unit-tested; live Google login needs env secrets)
 
@@ -270,16 +293,16 @@
 | Suite | Result |
 |-------|--------|
 | `go test ./...` | pass (api, auth, config) |
-| Live OAuth | pending 鈥?set Google secrets |
+| Live OAuth | pending — set Google secrets |
 
 ### Notes
 
-- Without Google secrets: login/callback 鈫?`503 oauth_not_configured`.
+- Without Google secrets: login/callback → `503 oauth_not_configured`.
 - Session cookie: `dbc_session`. Go get: SOCKS5 + goproxy.cn if needed.
 
 ---
 
-## 2026-07-21 鈥?Milestone 0: Process + scaffold
+## 2026-07-21 — Milestone 0: Process + scaffold
 
 **Status:** complete
 

@@ -1,8 +1,20 @@
-# API Contract (v1)
+# API Contract
 
-**Status:** draft aligned with design; implemented routes marked ✅  
+**Status:** current — matches `internal/api/router.go`  
 **Base URL (local):** `http://localhost:3000`  
 **Content-Type:** `application/json` unless noted  
+**Machine-readable spec:** `GET /api/v1/openapi.json` (no auth) is the canonical OpenAPI document.
+
+## Authentication
+
+Two auth modes:
+
+| Namespace | Auth | Audience |
+|-----------|------|----------|
+| `/api/*` | Session cookie `dbc_session` (HMAC-SHA256, set by OAuth callback) | Browser SPA |
+| `/api/v1/*` | Session cookie **or** API key `Authorization: Bearer dbk_…` | AI agents / scripts |
+
+API keys carry a scope: `read` or `readwrite`. Key management routes are session-only (a key can never manage keys).
 
 ## Error envelope
 
@@ -15,86 +27,36 @@
 }
 ```
 
-Common HTTP status: `400` validation, `401` auth, `403` Drive/permission, `404` missing, `405` method, `429` quota, `502` upstream Google.
+Common HTTP status: `400` validation, `401` auth, `403` Drive/permission/scope, `404` missing, `405` method, `429` quota, `502` upstream Google.
 
 ---
 
-## ✅ Health
+## Health
 
 ### `GET /api/health`
 
-No auth. Liveness for scaffold and ops.
-
-**200**
-
-```json
-{
-  "status": "ok",
-  "service": "drive-backup-console",
-  "timeUtc": "2026-07-21T03:00:00Z",
-  "devMode": true
-}
-```
-
-`devMode` omitted or false in production config.
+No auth. `200 {"status":"ok","service":"drive-backup-console","timeUtc":"…","devMode":true}` (`devMode` omitted in production).
 
 ---
 
-## ✅ OAuth + session
+## OAuth + session
 
-Requires `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`. Without them, login/callback return `503 oauth_not_configured` (DevMode may still run health/me unauthenticated).
+Requires `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`; without them login/callback return `503 oauth_not_configured`.
 
-### `GET /oauth2/login`
-
-Redirects browser to Google OAuth (`access_type=offline`, `prompt=consent` via `ApprovalForce`). Issues short-lived CSRF `state` (in-memory).
-
-**302** → Google consent URL  
-**503** if OAuth not configured
-
-### `GET /oauth2/callback?code=&state=`
-
-Validates `state`, exchanges code, persists tokens under `TOKEN_PATH` (JSON), sets HttpOnly session cookie `dbc_session` (HMAC-SHA256), redirects to `/`.
-
-**302** → `/` on success  
-**400** `oauth_callback_failed` / `oauth_denied`  
-**503** if OAuth not configured
-
-### `GET /api/auth/me`
-
-**401** `not_authenticated` if no/invalid session cookie.
-
-**200**
-
-```json
-{
-  "email": "user@gmail.com",
-  "connected": true
-}
-```
-
-`connected` is true when session email matches a stored token file.
-
-### `POST /api/auth/logout`
-
-Clears session cookie. Optional `?clearToken=1` also deletes local token file.
-
-**200**
-
-```json
-{
-  "ok": true,
-  "loggedOut": true,
-  "at": "2026-07-21T03:00:00Z"
-}
-```
+- `GET /oauth2/login` — 302 to Google consent (`access_type=offline`, forced approval). Issues short-lived CSRF `state`.
+- `GET /oauth2/callback?code=&state=` — validates state, exchanges code, persists token under `DATA_DIR`, sets `dbc_session` cookie, 302 to `FRONTEND_ORIGIN`.
+- `GET /api/auth/me` — `200 {"email":"…","connected":true}` or `401 not_authenticated`.
+- `POST /api/auth/logout` — clears cookie; `?clearToken=1` also deletes the stored token file.
 
 ---
 
-## ✅ Files
+## Files
 
-### `GET /api/files?folderId=&pageToken=`
+All routes below require a session (or, under `/api/v1`, an API key with sufficient scope).
 
-Requires session cookie. `folderId` defaults to `ROOT_FOLDER_ID` env or `root`.
+### `GET /api/files?folderId=&pageToken=&pageSize=`
+
+Lists a folder. `folderId` defaults to `ROOT_FOLDER_ID` env or `root`. `pageSize` optional (server clamps; SPA sends 100).
 
 **200**
 
@@ -102,217 +64,157 @@ Requires session cookie. `folderId` defaults to `ROOT_FOLDER_ID` env or `root`.
 {
   "folderId": "root",
   "items": [
-    {
-      "id": "1abc",
-      "name": "Backups",
-      "mimeType": "application/vnd.google-apps.folder",
-      "size": null,
-      "modifiedTime": "2026-07-20T10:00:00Z",
-      "isFolder": true
-    },
-    {
-      "id": "2def",
-      "name": "archive.zip",
-      "mimeType": "application/zip",
-      "size": 1048576,
-      "modifiedTime": "2026-07-21T01:00:00Z",
-      "isFolder": false
-    }
+    { "id": "1abc", "name": "Backups", "mimeType": "application/vnd.google-apps.folder",
+      "size": null, "modifiedTime": "2026-07-20T10:00:00Z", "isFolder": true }
   ],
   "nextPageToken": null
 }
 ```
 
+### `GET /api/files/search?q=&scope=folder|drive&folderId=&pageToken=&pageSize=`
+
+Full-text name search. `scope=folder` restricts to `folderId`; default searches the whole Drive. Response shape matches list.
+
 ### `GET /api/files/{id}/download`
 
-Requires session. Streams binary media; `Content-Disposition: attachment`. Folders and Google Docs native types return `400` (`is_folder` / `export_required`).
+Streams binary media, `Content-Disposition: attachment`. Supports **Range** requests (passthrough to Google — used for video/PDF streaming and parallel downloads). Optional metadata-hint query params from list data let the server skip the `GetMeta` round-trip. Folders / native Google Docs types → `400` (`is_folder` / `export_required`).
 
-### `POST /api/files/mkdir` ✅
+### `POST /api/files/mkdir`
 
-Requires session. Creates a folder under `parentId` (default `ROOT_FOLDER_ID` or `root`).
+`{ "name": "Backups", "parentId": "root" }` → **201** `FileItem` (`isFolder: true`).
 
-```json
-{ "name": "Backups", "parentId": "root" }
-```
+### `POST /api/files`
 
-**201** — `FileItem` (`isFolder: true`)  
-**400** empty name / invalid JSON
+Creates a file with optional initial text: `{ "name": "note.md", "parentId": "root", "mimeType": "text/markdown", "content": "# hello" }` → **201** `FileItem`. Body limit 3 MiB.
 
-### `POST /api/files` ✅
+### `POST /api/files/simple?name=&parentId=&mimeType=`
 
-Requires session. Creates a file (optional initial text `content`).
+Raw binary body (max **5 MiB**) uploaded in one request — used by the SPA for small files. → **201** `FileItem`.
 
-```json
-{
-  "name": "note.md",
-  "parentId": "root",
-  "mimeType": "text/markdown",
-  "content": "# hello"
-}
-```
+### `PATCH /api/files/{id}`
 
-`mimeType` optional (server/Drive default when empty). `content` optional (empty file).
+Rename: `{ "name": "renamed.md" }` → **200** updated `FileItem`.
 
-**201** — `FileItem`  
-**400** empty name / invalid JSON
+### `POST /api/files/{id}/move`
 
-### `DELETE /api/files/{id}` ✅
+`{ "parentId": "folderIdOrRoot" }` → **200** updated `FileItem`.
 
-Requires session. Moves the file/folder to Drive trash (`trashed: true`).
+### `POST /api/files/{id}/copy`
 
-**204** empty body  
-**400** missing id
+`{ "parentId": "…", "name": "optional new name" }` → **201** `FileItem` of the copy.
 
-### `PATCH /api/files/{id}` ✅
+### `DELETE /api/files/{id}`
 
-Requires session. Renames a file or folder.
+Moves to Drive trash → **204**.
+
+### `POST /api/files/batch`
+
+Bulk trash/move (max 100 ids, 6-way concurrent server-side):
 
 ```json
-{ "name": "renamed.md" }
+{ "action": "trash", "ids": ["id1", "id2"], "parentId": "required for move" }
 ```
 
-**200** — updated `FileItem`  
-**400** empty name / missing id / invalid JSON
+**200** `{ "succeeded": N, "errors": [{ "id": "…", "error": "…" }] }`.
 
-### `POST /api/files/{id}/move` ✅
+### `GET /api/files/{id}/content` / `PUT /api/files/{id}/content`
 
-Requires session. Moves a file or folder under a new parent (Drive `addParents` / `removeParents`).
+Text read/write for previewable text files. GET → `{ "content", "mimeType", "size", "name" }`; PUT `{ "content": "…" }` → `{ "ok": true }`. PUT body limit 3 MiB.
 
-```json
-{ "parentId": "folderIdOrRoot" }
-```
+### Sharing
 
-**200** — updated `FileItem`  
-**400** missing `parentId` / missing id / invalid JSON
+- `POST /api/files/{id}/share` — `{ "role": "reader" }` (default `reader`) → **200** share-link info.
+- `DELETE /api/files/{id}/share?permissionId=` — revoke → **204**.
+- `GET /api/files/{id}/permissions` — **200** `{ "permissions": [...] }`.
 
-### `GET /api/files/{id}/content` ✅
+### Revisions
 
-Requires session. Returns UTF-8 text for previewable text files (not folders / binary / native Docs export).
+- `GET /api/files/{id}/revisions` — revision list.
+- `POST /api/files/{id}/revisions/{rev}/restore` — restore a revision.
 
-**200**
+### ZIP download
 
-```json
-{
-  "content": "file body…",
-  "mimeType": "text/plain",
-  "size": 42,
-  "name": "note.txt"
-}
-```
+- `GET /api/files/{id}/zip` — streams a folder as ZIP.
+- `POST /api/files/zip` — `{ "ids": [...] }` streams multiple items as one ZIP.
 
-### `PUT /api/files/{id}/content` ✅
+### `GET /api/files/{id}/thumbnail?link=`
 
-Requires session. Replaces text media body.
-
-```json
-{ "content": "updated body" }
-```
-
-**200** `{ "ok": true }`
+Proxies Google's OAuth-protected `thumbnailLink` so `<img>` tags work. `link=` (from list data) skips the metadata round-trip. `Cache-Control: private, max-age=3600`. **404** when no thumbnail exists.
 
 ---
 
-## Overview ✅
+## Resumable uploads
 
-### `GET /api/overview`
-
-Requires session. Proxies Drive `about` (`user` + `storageQuota`). Quota numbers are integers (bytes).
-
-**200**
-
-```json
-{
-  "storage": {
-    "limit": 16106127360,
-    "usage": 1234567890,
-    "usageInDrive": 1000
-  },
-  "user": {
-    "email": "user@gmail.com",
-    "displayName": "Ada"
-  }
-}
-```
-
-**401** without session. SPA also shows client-only upload history (`localStorage` key `dbc_upload_history`) and type counts from the **current folder listing** (not a full-drive scan).
-
----
-
-## Uploads (M3) ✅
-
-Requires session. Jobs live in memory for the process lifetime (restart loses in-flight jobs).
+Jobs are persisted under `DATA_DIR` and survive restarts; chunk retry resumes from the server's `bytesReceived`.
 
 ### `POST /api/uploads`
 
 ```json
-{
-  "name": "backup.zip",
-  "size": 10485760,
-  "parentId": "1abc",
-  "mimeType": "application/zip"
-}
+{ "name": "backup.zip", "size": 10485760, "parentId": "1abc", "mimeType": "application/zip" }
 ```
 
-Starts a Google Drive **resumable** session. Empty `parentId` → `ROOT_FOLDER_ID` or `root`.
-
-**201**
-
-```json
-{
-  "uploadId": "up_xxx",
-  "status": "pending",
-  "total": 10485760,
-  "name": "backup.zip",
-  "fileId": null
-}
-```
-
-Zero-byte files may return `status: "completed"` with `fileId` set immediately.
+Starts a Google Drive **resumable** session → **201** `{ "uploadId", "status": "pending", "total", "name", "fileId": null }`. Zero-byte files may complete immediately.
 
 ### `PUT /api/uploads/{uploadId}/chunk`
 
-Binary body (max **8 MiB** per request). Sequential append.
+Binary body, max **32 MiB** per request (`upload.MaxClientChunk`). Sequential append. Optional headers:
 
-Optional headers:
+- `X-Upload-Offset: <start>` — must equal server `bytesReceived` (mismatch → `409` with current offset, client resumes from there)
+- `Content-Range: bytes start-end/total`
 
-- `X-Upload-Offset: <start>` — must match server `bytesReceived`
-- `Content-Range: bytes start-end/total` — start used as offset check
+Server buffers and flushes to Drive in 256 KiB multiples (adaptive flush: 16 MiB default, 32 MiB for files >200 MB, pipelined with the incoming chunk). The final request may be any size.
 
-Server buffers and flushes to Drive in **256 KiB** multiples; the **final** request may be any size.
+**200** `{ "uploadId", "bytesSent", "bytesReceived", "total", "status", "fileId", "error" }`
 
-**200**
+### `GET /api/uploads/{uploadId}` / `POST /api/uploads/{uploadId}/cancel`
 
-```json
-{
-  "uploadId": "up_xxx",
-  "bytesSent": 5242880,
-  "bytesReceived": 5242880,
-  "total": 10485760,
-  "status": "uploading",
-  "fileId": null,
-  "error": null
-}
-```
-
-### `GET /api/uploads/{uploadId}`
-
-Same JSON shape as chunk response (includes `name` / `error` when set).
-
-### `POST /api/uploads/{uploadId}/cancel`
-
-Best-effort cancel (`status: cancelled`). Does not delete partial Drive objects.
+Status polling (same shape as chunk response) / best-effort cancel.
 
 Statuses: `pending` | `uploading` | `completed` | `failed` | `cancelled`.
 
+Client strategy (SPA): ≤5 MB → `POST /api/files/simple`; 5–32 MB → single chunk; larger → 16/32 MiB adaptive chunks with pipeline depth 2.
+
 ---
 
-## Auth gate
+## Overview
 
-- Public: `GET /api/health`, `GET /oauth2/login`, `GET /oauth2/callback`, `GET /api/auth/me`, `POST /api/auth/logout`
-- Drive list/download/mutate/content/overview/uploads: `RequireSession` (session cookie). Token file used when calling Google via OAuth client.
+### `GET /api/overview`
+
+Proxies Drive `about` (user + storage quota, bytes as integers); server caches for 5 minutes.
+
+```json
+{
+  "storage": { "limit": 16106127360, "usage": 1234567890, "usageInDrive": 1000 },
+  "user": { "email": "user@gmail.com", "displayName": "Ada" }
+}
+```
+
+SPA additionally shows client-only upload history (`localStorage` `dbc_upload_history`) and type counts from the current folder listing.
+
+---
+
+## `/api/v1` — programmatic API
+
+Stable external contract for AI agents and scripts. Same handlers as the UI API, but auth accepts **cookie or API key** and every route is scope-gated (`read` / `readwrite`).
+
+- `GET /api/v1/openapi.json` — OpenAPI 3 document, no auth (discovery).
+- Key management (session cookie only):
+  - `POST /api/v1/keys` — `{ "name": "…", "scope": "read"|"readwrite" }` → key shown once (`dbk_…`).
+  - `GET /api/v1/keys` — list (no secrets).
+  - `DELETE /api/v1/keys/{id}` — revoke.
+- Mirrored file routes: list/search/content/download/permissions/revisions/zip/thumbnail/multi-zip require `read`; create/content-write/mkdir/simple/rename/move/copy/trash/share/unshare/restore/batch require `readwrite`.
+- Uploads: create/chunk/cancel require `readwrite`; status requires `read`.
+- `GET /api/v1/overview` requires `read`.
+
+---
+
+## Middleware / transport notes
+
+- **Gzip** — content-aware: only compressible types (text/JSON/JS/XML/SVG) ≥1 KiB; skips media, Range responses, and pre-encoded bodies. Download/thumbnail/chunk/zip paths bypass entirely.
+- **Body limits** — JSON mutation routes 64 KiB–3 MiB (see router); chunk 32 MiB; simple upload 5 MiB.
+- **Static SPA** — served from `WEB_DIST_DIR` with immutable caching for hashed assets and client-routing fallback.
 
 ## Frontend notes
 
-- Production: same origin as Go (embed).
-- Dev: Vite proxy `/api` and `/oauth2` → `http://localhost:3000`.
-- Connect Google → navigate to `/oauth2/login`.
+- Production: same origin as Go (embedded `web/dist`).
+- Dev: Vite proxy `/api` + `/oauth2` → `http://localhost:3000`; SPA on `:5174`.

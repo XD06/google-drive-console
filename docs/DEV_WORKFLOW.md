@@ -1,7 +1,7 @@
 # Development Workflow
 
 **Project:** Drive Backup Console  
-**Last updated:** 2026-07-21
+**Last updated:** 2026-07-25
 
 ## Principles
 
@@ -31,13 +31,13 @@ Plan (scope + acceptance)
 | Backend run | `go run ./cmd/server` |
 | Frontend dev | `cd web && npm run dev` (proxy API to `:3000`) |
 | Frontend build | `cd web && npm run build` |
-| Static UI demo (frozen) | serve `web/demo` (e.g. port 5173) — mock only |
+| Frontend tests | `cd web && npm test -- --run` |
+| Type check | `cd web && npx tsc --noEmit` |
 
 ## Branching / workspace
 
-Folder-backed workspace (no git required). Prefer clean commits if/when git is initialized:
-
-- `feat/*` features, `fix/*` bugs, `docs/*` documentation-only.
+Git repo hosted at **github.com/XD06/drive-backup-console** (private), main branch `master`.
+Small focused commits (`feat:` / `fix:` / `perf:` / `docs:` prefixes); push after tests pass.
 
 ## Definition of Done (slice)
 
@@ -54,6 +54,7 @@ Folder-backed workspace (no git required). Prefer clean commits if/when git is i
 |---------|----------------|
 | `internal/config` | Env + defaults |
 | `internal/auth` | OAuth + token store + session |
+| `internal/apikey` | API keys for /api/v1 |
 | `internal/drive` | Drive API operations |
 | `internal/upload` | Upload job/progress |
 | `internal/api` | HTTP routes + middleware |

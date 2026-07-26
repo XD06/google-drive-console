@@ -4,7 +4,7 @@ Self-hosted web console for managing personal Google Drive — browse, upload, d
 
 ## Features
 
-- **Full Drive browser** — folder navigation, breadcrumbs, search, type filters
+- **Full Drive browser** — folder navigation, breadcrumbs, Spotlight-style search (Ctrl/Cmd+K), type filters
 - **Resumable chunked uploads** — pause/resume, progress tracking, drag-and-drop
 - **Parallel downloads** — multi-stream Range requests for large files
 - **Batch operations** — multi-select trash, move, ZIP download
@@ -13,7 +13,8 @@ Self-hosted web console for managing personal Google Drive — browse, upload, d
 - **Overview dashboard** — storage usage, upload history, type breakdown
 - **Responsive** — works on desktop and mobile with touch-optimised UI
 - **Dark / Light / System** theme with Apple Liquid Glass design
-- **Performance** — Gzip compression, connection pooling, thumbnail caching, context-aware retries
+- **Agent-ready API** — stable `/api/v1` with API keys (read / readwrite scopes) and OpenAPI spec at `/api/v1/openapi.json`
+- **Performance** — content-aware Gzip, connection pooling, thumbnail caching, adaptive chunk pipeline, context-aware retries
 
 ## Tech Stack
 
@@ -90,6 +91,7 @@ See `docs/docker.md` for full deployment guide.
 cmd/server/              Server entrypoint
 internal/
   api/                   HTTP handlers, middleware, router
+  apikey/                API key store for /api/v1 (agents & scripts)
   auth/                  OAuth 2.0 + session management
   config/                Environment configuration
   drive/                 Google Drive API client
@@ -118,6 +120,7 @@ cd web && npx tsc --noEmit
 
 - [API Contract](docs/api-contract.md)
 - [Design Spec](docs/spark/2026-07-21-drive-backup-console-design.md)
+- [Agent File API Design](docs/spark/2026-07-23-agent-file-api-design.md)
 - [Docker Deployment](docs/docker.md)
 - [Development Workflow](docs/DEV_WORKFLOW.md)
 - [Progress Log](docs/progress.md)
