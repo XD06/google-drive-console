@@ -1,46 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
   <defs>
     <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#cfe0fb"/>
-      <stop offset="0.45" stop-color="#e9dcf8"/>
-      <stop offset="1" stop-color="#fcdfee"/>
+      <stop offset="0" stop-color="#f2f6fd"/>
+      <stop offset="0.55" stop-color="#f6f4fb"/>
+      <stop offset="1" stop-color="#fbf4f7"/>
     </linearGradient>
     <radialGradient id="g1" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#5d9dff" stop-opacity="0.95"/>
-      <stop offset="1" stop-color="#5d9dff" stop-opacity="0"/>
+      <stop offset="0" stop-color="#a9c7fb" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#a9c7fb" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="g2" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#ff8fc8" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="#ff8fc8" stop-opacity="0"/>
+      <stop offset="0" stop-color="#d7c6fa" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#d7c6fa" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="g3" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#a487ff" stop-opacity="0.85"/>
-      <stop offset="1" stop-color="#a487ff" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="g4" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#5fd9d2" stop-opacity="0.8"/>
-      <stop offset="1" stop-color="#5fd9d2" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="g5" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#ffcf8f" stop-opacity="0.85"/>
-      <stop offset="1" stop-color="#ffcf8f" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="g6" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.65"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0" stop-color="#c2e9e4" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#c2e9e4" stop-opacity="0"/>
     </radialGradient>
     <filter id="noise">
       <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/>
       <feColorMatrix type="saturate" values="0"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.045" intercept="0"/></feComponentTransfer>
+      <feComponentTransfer><feFuncA type="linear" slope="0.02" intercept="0"/></feComponentTransfer>
     </filter>
   </defs>
   <rect width="1600" height="1000" fill="url(#base)"/>
-  <ellipse cx="300" cy="230" rx="680" ry="520" fill="url(#g1)"/>
-  <ellipse cx="1320" cy="170" rx="560" ry="460" fill="url(#g2)"/>
-  <ellipse cx="820" cy="640" rx="640" ry="520" fill="url(#g3)"/>
-  <ellipse cx="230" cy="880" rx="560" ry="440" fill="url(#g4)"/>
-  <ellipse cx="1430" cy="840" rx="540" ry="460" fill="url(#g5)"/>
-  <ellipse cx="960" cy="60" rx="480" ry="320" fill="url(#g6)"/>
+  <ellipse cx="180" cy="120" rx="820" ry="620" fill="url(#g1)"/>
+  <ellipse cx="1480" cy="900" rx="780" ry="600" fill="url(#g2)"/>
+  <ellipse cx="220" cy="960" rx="620" ry="440" fill="url(#g3)"/>
   <rect width="1600" height="1000" filter="url(#noise)"/>
 </svg>

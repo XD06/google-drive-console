@@ -1359,14 +1359,21 @@ html[data-theme="dark"][data-wallpaper="aurora"] body::before { background-image
 html[data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-light.svg"); }
 html[data-theme="dark"][data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-dark.svg"); }
 
-/* Wallpaper modes let far more colour through the panels */
+/* Wallpaper modes let far more colour through the panels.
+   The pastel wallpapers are pre-tinted, so the glass must not
+   re-saturate them (saturate(200%) turned them into candy). */
 html[data-theme="light"]:not([data-wallpaper="minimal"]) {
   --sidebar-fill: rgba(255, 255, 255, 0.24);
   --workspace-fill: rgba(255, 255, 255, 0.34);
+  --blur: saturate(112%) blur(32px);
 }
 html[data-theme="dark"]:not([data-wallpaper="minimal"]) {
   --sidebar-fill: rgba(30, 32, 44, 0.3);
   --workspace-fill: rgba(22, 24, 34, 0.42);
+  --blur: saturate(118%) blur(34px);
+}
+html:not([data-wallpaper="minimal"]) {
+  --glass-frost: saturate(125%) blur(30px);
 }
 
 /* Mobile: topbar/toolbar were 78% solid — let the wallpaper glow through */
@@ -1374,6 +1381,8 @@ html[data-theme="dark"]:not([data-wallpaper="minimal"]) {
   html:not([data-wallpaper="minimal"]) .topbar,
   html:not([data-wallpaper="minimal"]) .toolbar {
     background: color-mix(in srgb, var(--surface) 55%, transparent);
+    backdrop-filter: saturate(115%) blur(22px);
+    -webkit-backdrop-filter: saturate(115%) blur(22px);
   }
 }
 
@@ -1383,8 +1392,15 @@ html[data-theme="dark"]:not([data-wallpaper="minimal"]) {
   html[data-theme="dark"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #1c1d24; --workspace-fill: #16171d; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  html[data-theme="light"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #f4f6fb; --workspace-fill: #fbfcfe; }
-  html[data-theme="dark"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #1c1d24; --workspace-fill: #16171d; }
+  html[data-theme="light"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #f4f6fb; --workspace-fill: #fbfcfe; --blur: none; }
+  html[data-theme="dark"]:not([data-wallpaper="minimal"]) { --sidebar-fill: #1c1d24; --workspace-fill: #16171d; --blur: none; }
+  html:not([data-wallpaper="minimal"]) { --glass-frost: none; }
+  html:not([data-wallpaper="minimal"]) .topbar,
+  html:not([data-wallpaper="minimal"]) .toolbar {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
   html[data-wallpaper="aurora"] body::before,
   html[data-wallpaper="sakura"] body::before { display: none; }
 }
