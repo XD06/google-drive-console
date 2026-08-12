@@ -1,5 +1,51 @@
 # Progress Log
 
+## 2026-07-27 → 08-12 — Bug audit fixes + frontend store split
+
+**Status:** complete (unit/build green; browser E2E still manual) — ready to push
+
+### Theme
+
+Full-stack bug audit (`BUG_AUDIT_2026-07-27.md`) + architecture notes (`docs/ARCHITECTURE_RECOMMENDATIONS_2026-07-27.md`), then ship the high-priority correctness/security fixes and start the App.tsx de-godification.
+
+### Backend (security / correctness / durability)
+
+- [x] **C1** Thumbnail `?link=` allowlist + redirect re-check (block SSRF / OAuth token exfil) + `thumbnail_url_test.go`
+- [x] **H3** Upload flush generation (`flushGen`) so concurrent chunk PUTs cannot double-flush / flip completed→failed
+- [x] **H4** Terminal-job reaper (10m tick, 1h maxAge); nil buffer on fail path
+- [x] **H5** `Service` takes `JobStore`; wire `*PersistentStore` so debounced `uploads.json` saves actually run
+- [x] **M2** Zip walk: visited set, max depth 20, max 5000 files; multi-zip item cap 200
+- [x] Download: log mid-stream copy failures; honor `If-None-Match` from list hints **before** opening media
+- [x] Overview about-cache keyed by session email (no cross-user leak)
+- [x] Drive query escape: backslash before quote; retry body drain capped at 1 MiB
+- [x] Dev helpers: `start.sh` / `start.bat` / `stop.sh` / `stop.bat`; ignore `.dev-pids`
+
+### Frontend (races / re-render / structure)
+
+- [x] **H1 / M1** `web/src/lib/fileStore.ts` — list/pagination/cache via `useSyncExternalStore` (stale load-more guard, LRU cache)
+- [x] **M1 / H7** `web/src/lib/uploadSession.ts` — upload jobs outside App; logout aborts all controllers
+- [x] **H6** image/editor open generation refs (no stale blob / editor clobber)
+- [x] Split pages: `FilesPage.tsx`, `OverviewPage.tsx`; top-level `ErrorBoundary`
+- [x] Upload progress: real Drive-phase polling (drop fake 50–95% estimate); monotonic hi-water
+- [x] Delete unused `ImageLightbox.tsx`; CSS/hooks polish for phase-3 layout
+- [x] Smoke screenshots: `ph3-files.png`, `ph3-overview.png`, `web/phase2-smoke-gate.png`
+
+### Verification (2026-08-12)
+
+| Suite | Result |
+|-------|--------|
+| `go test -count=1 ./...` | pass (api, apikey, auth, config, drive, upload) |
+| `cd web && npm test` | 60/60 pass (incl. new `fileStore.test.ts`) |
+| `cd web && npm run build` (`tsc -b` + vite) | pass |
+
+### Still open / next
+
+- Architecture recs not fully done: `drive.Backend` interface, further handler split, more App shell thinning
+- Remaining audit items (medium/low): e.g. passive wheel on lightbox, apikey disk-under-mutex, some dead prefs
+- No automated browser E2E — manual smoke still recommended after deploy
+
+---
+
 ## 2026-07-25 — Docs refresh + repo tidy
 
 **Status:** complete

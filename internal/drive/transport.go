@@ -78,28 +78,29 @@ func (t *retryTransport) Do(req *http.Request) (*http.Response, error) {
 
 		// Retry on 429 and 5xx for idempotent methods
 		if retryable && (resp.StatusCode == 429 || resp.StatusCode >= 500) {
-				// Honor Retry-After header if present (capped at 60s)
-				if ra := resp.Header.Get("Retry-After"); ra != "" {
-					if secs, err := strconv.Atoi(ra); err == nil {
-						wait := time.Duration(secs) * time.Second
-						if wait > 60*time.Second {
-							wait = 60 * time.Second
-						}
-						select {
-						case <-time.After(wait):
-						case <-req.Context().Done():
-							io.Copy(io.Discard, resp.Body)
-							resp.Body.Close()
-							return nil, req.Context().Err()
-						}
+			// Honor Retry-After header if present (capped at 60s)
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				if secs, err := strconv.Atoi(ra); err == nil {
+					wait := time.Duration(secs) * time.Second
+					if wait > 60*time.Second {
+						wait = 60 * time.Second
+					}
+					select {
+					case <-time.After(wait):
+					case <-req.Context().Done():
+						io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+						resp.Body.Close()
+						return nil, req.Context().Err()
 					}
 				}
-				// Drain body to allow connection reuse
-				io.Copy(io.Discard, resp.Body)
-				resp.Body.Close()
-				lastErr = &APIError{Status: resp.StatusCode, Code: "transient_error", Message: "transient server error"}
-				continue
 			}
+			// Drain body to allow connection reuse (capped — misbehaving
+			// upstreams must not pin unbounded memory on a discard).
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			lastErr = &APIError{Status: resp.StatusCode, Code: "transient_error", Message: "transient server error"}
+			continue
+		}
 		return resp, nil
 	}
 	if lastErr == nil {

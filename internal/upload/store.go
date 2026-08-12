@@ -66,3 +66,26 @@ func (s *Store) Update(id string, fn func(j *Job) error) (*Job, error) {
 	j.UpdatedAt = time.Now().UTC()
 	return j, nil
 }
+
+// DeleteOlderThan removes terminal jobs whose UpdatedAt is older than maxAge.
+// Returns the number of jobs deleted. Pending/uploading jobs are never removed.
+func (s *Store) DeleteOlderThan(maxAge time.Duration) int {
+	if maxAge <= 0 {
+		return 0
+	}
+	cutoff := time.Now().UTC().Add(-maxAge)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, j := range s.jobs {
+		j.mu.RLock()
+		terminal := j.Status == StatusCompleted || j.Status == StatusFailed || j.Status == StatusCancelled
+		old := !j.UpdatedAt.After(cutoff)
+		j.mu.RUnlock()
+		if terminal && old {
+			delete(s.jobs, id)
+			n++
+		}
+	}
+	return n
+}

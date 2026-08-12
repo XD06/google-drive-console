@@ -1,32 +1,34 @@
 import { formatBytes } from "../lib/api";
 import { IconClose, IconStop, IconUpload } from "../lib/icons";
+import {
+  cancelUploadJob,
+  dismissUploadJob,
+  useUploadJobs,
+  type UploadJob,
+} from "../lib/uploadSession";
 
-export type UploadJobView = {
-  id: string;
-  name: string;
-  received: number;
-  total: number;
-  status: string;
-  error?: string;
-  cancelling?: boolean;
-};
-
-export type UploadToastHostProps = {
-  jobs: UploadJobView[];
-  onCancel: (job: UploadJobView) => void;
-  onDismiss: (id: string) => void;
-};
+export type UploadJobView = UploadJob;
 
 function jobPhase(job: UploadJobView) {
   if (job.status === "failed" || !!job.error) return "err" as const;
   if (job.status === "completed" || job.status === "done") return "done" as const;
   if (job.status === "cancelled") return "cancelled" as const;
   if (job.status === "cancelling" || job.cancelling) return "cancelling" as const;
+  if (job.status === "flushing") return "flushing" as const;
   return "active" as const;
 }
 
-export function UploadToastHost({ jobs, onCancel, onDismiss }: UploadToastHostProps) {
+/** Subscribes to the external upload store — progress ticks do not re-render App. */
+export function UploadToastHost() {
+  const jobs = useUploadJobs();
   if (jobs.length === 0) return null;
+
+  const onCancel = (job: UploadJobView) => {
+    void cancelUploadJob(job);
+  };
+  const onDismiss = (id: string) => {
+    dismissUploadJob(id);
+  };
 
   return (
     <div className="upload-toast-host" aria-live="polite" aria-label="Upload progress">
@@ -40,20 +42,24 @@ export function UploadToastHost({ jobs, onCancel, onDismiss }: UploadToastHostPr
             : rawPct < 10
               ? `${rawPct.toFixed(1)}%`
               : `${Math.round(rawPct)}%`;
-        const canCancel = phase === "active";
+        const canCancel = phase === "active" || phase === "flushing";
         const canDismiss = phase === "done" || phase === "err" || phase === "cancelled";
         const meta =
           phase === "done"
-            ? "Uploaded"
+            ? "Uploaded — file is in this folder"
             : phase === "err"
               ? job.error || "Upload failed"
               : phase === "cancelled"
                 ? "Cancelled"
                 : phase === "cancelling"
                   ? "Cancelling…"
-                  : job.total > 0
-                    ? `${formatBytes(job.received)} / ${formatBytes(job.total)} · ${pctLabel}`
-                    : "Starting…";
+                  : phase === "flushing"
+                    ? job.total > 0
+                      ? `${formatBytes(job.received)} / ${formatBytes(job.total)} · sending to Drive…`
+                      : "Sending to Drive…"
+                    : job.total > 0
+                      ? `${formatBytes(job.received)} / ${formatBytes(job.total)} · ${pctLabel}`
+                      : "Starting…";
 
         return (
           <div

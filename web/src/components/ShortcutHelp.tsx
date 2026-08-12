@@ -8,7 +8,7 @@ export type ShortcutHelpProps = {
 const SHORTCUTS: { keys: string; desc: string }[] = [
   { keys: "↑ / ↓", desc: "Move selection up / down" },
   { keys: "Enter", desc: "Open selected file or folder" },
-  { keys: "Delete / Backspace", desc: "Move selected to trash" },
+  { keys: "Delete", desc: "Move selected to trash" },
   { keys: "Ctrl/Cmd + A", desc: "Select all files in view" },
   { keys: "Ctrl/Cmd + C", desc: "Copy selected file name" },
   { keys: "Escape", desc: "Close dialog / clear search" },

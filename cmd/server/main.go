@@ -65,7 +65,9 @@ func main() {
 	}
 
 	uploadStore := upload.NewPersistentStore(filepath.Join(cfg.DataDir, "uploads.json"))
-	uploadSvc := &upload.Service{Store: uploadStore.Store}
+	// Pass PersistentStore itself so Put/Update schedule debounced disk saves (not only on shutdown).
+	uploadSvc := &upload.Service{Store: uploadStore}
+	uploadStore.StartReaper(10*time.Minute, time.Hour)
 
 	apiKeys := apikey.NewStore(cfg.APIKeysPath)
 
@@ -104,6 +106,7 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("shutdown signal received, draining connections…")
+	uploadStore.StopReaper()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

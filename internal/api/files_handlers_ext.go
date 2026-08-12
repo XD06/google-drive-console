@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -231,6 +233,10 @@ func (h *FilesHandlers) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 // which <img> tags cannot provide. The server proxies with its credentials.
 // Accepts optional ?link= query param with the known thumbnailLink from list
 // data to skip the GetMeta round-trip (N+1 → 0 upstream calls for browsing).
+//
+// Security: link is allowlisted to Google thumbnail hosts only. client.HTTP is an
+// oauth2 client that attaches the Drive access token to every request; fetching an
+// attacker-controlled URL would exfiltrate that token and enable SSRF.
 func (h *FilesHandlers) Thumbnail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -245,6 +251,10 @@ func (h *FilesHandlers) Thumbnail(w http.ResponseWriter, r *http.Request) {
 
 	// Fast path: caller already knows the thumbnailLink from list response
 	thumbURL := strings.TrimSpace(r.URL.Query().Get("link"))
+	if thumbURL != "" && !isAllowedThumbnailURL(thumbURL) {
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "link must be a Google thumbnail HTTPS URL")
+		return
+	}
 	if thumbURL == "" {
 		// Slow path: fetch metadata to get thumbnailLink
 		meta, err := client.GetMeta(r.Context(), id)
@@ -259,6 +269,11 @@ func (h *FilesHandlers) Thumbnail(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	// Defense in depth: GetMeta-sourced links are validated too.
+	if !isAllowedThumbnailURL(thumbURL) {
+		writeJSONError(w, http.StatusBadGateway, "thumbnail_error", "refusing non-Google thumbnail URL")
+		return
+	}
 
 	// Proxy the thumbnail from Google
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, thumbURL, nil)
@@ -266,7 +281,7 @@ func (h *FilesHandlers) Thumbnail(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "thumbnail_error", "failed to create request")
 		return
 	}
-	res, err := client.HTTP.Do(req)
+	res, err := h.thumbnailDoer(r.Context(), client.HTTP).Do(req)
 	if err != nil {
 		writeJSONError(w, http.StatusBadGateway, "thumbnail_error", "failed to fetch thumbnail")
 		return
@@ -282,6 +297,59 @@ func (h *FilesHandlers) Thumbnail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.WriteHeader(http.StatusOK)
 	io.Copy(w, res.Body)
+}
+
+// thumbnailDoer returns an HTTP doer for proxying a Google thumbnail. It reuses
+// the OAuth transport (the access token must be attached for Google to serve
+// the image), but installs a CheckRedirect that re-validates every hop against
+// the Google host allowlist. Without this, the transport re-attaches the Drive
+// token on each redirect, so an off-Google redirect could exfiltrate it and
+// enable SSRF. Falls back to the provided doer when the OAuth client is
+// unavailable (e.g. tests with an injected Drive factory and no Auth service).
+func (h *FilesHandlers) thumbnailDoer(ctx context.Context, fallback drive.HTTPDoer) drive.HTTPDoer {
+	if h.Auth == nil {
+		return fallback
+	}
+	hc, err := h.Auth.HTTPClient(ctx)
+	if err != nil {
+		return fallback
+	}
+	safe := *hc // copy so we never mutate the shared, cached OAuth client
+	safe.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if !isAllowedThumbnailURL(req.URL.String()) {
+			return fmt.Errorf("thumbnail redirect to disallowed host %q blocked", req.URL.Host)
+		}
+		return nil
+	}
+	return &safe
+}
+
+// isAllowedThumbnailURL reports whether raw is an https URL on a Google
+// thumbnail host. Host matching is suffix-based on the hostname only (not the
+// full authority), so userinfo / spoofed paths cannot bypass the check.
+func isAllowedThumbnailURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" || strings.Contains(host, "..") {
+		return false
+	}
+	for _, suffix := range []string{
+		"googleusercontent.com",
+		"ggpht.com",
+		"googleapis.com",
+		"google.com",
+	} {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Batch handles POST /api/files/batch — performs trash or move on multiple files.
@@ -391,6 +459,11 @@ func (h *FilesHandlers) MultiZip(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Items) == 0 {
 		writeJSONError(w, http.StatusBadRequest, "bad_request", "items required")
+		return
+	}
+	const maxMultiZipItems = 200
+	if len(req.Items) > maxMultiZipItems {
+		writeJSONError(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("max %d items per zip", maxMultiZipItems))
 		return
 	}
 

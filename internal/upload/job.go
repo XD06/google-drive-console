@@ -9,11 +9,11 @@ import (
 type Status string
 
 const (
-	StatusPending    Status = "pending"
-	StatusUploading  Status = "uploading"
-	StatusCompleted  Status = "completed"
-	StatusFailed     Status = "failed"
-	StatusCancelled  Status = "cancelled"
+	StatusPending   Status = "pending"
+	StatusUploading Status = "uploading"
+	StatusCompleted Status = "completed"
+	StatusFailed    Status = "failed"
+	StatusCancelled Status = "cancelled"
 )
 
 // Job is a resumable upload tracked by the server.
@@ -39,7 +39,8 @@ type Job struct {
 
 	// buffer holds unaligned remainder not yet sent to Drive.
 	buffer   []byte
-	flushing bool // true while a flush loop is actively uploading to Drive
+	flushing bool   // true while a flush loop is actively uploading to Drive
+	flushGen uint64 // bumped each time a goroutine becomes the flusher; clear only if gen matches
 }
 
 // PublicView is the API JSON for job status (no session URL).

@@ -24,9 +24,18 @@ type DriveUploader interface {
 	QueryUploadStatus(ctx context.Context, sessionURL string, total int64) (drive.UploadChunkResult, error)
 }
 
+// JobStore is the persistence surface used by Service.
+// *Store and *PersistentStore both satisfy it.
+type JobStore interface {
+	Put(j *Job)
+	Get(id string) (*Job, error)
+	Update(id string, fn func(j *Job) error) (*Job, error)
+	Delete(id string)
+}
+
 // Service orchestrates job store + Drive resumable upload.
 type Service struct {
-	Store *Store
+	Store JobStore
 	Drive DriveUploader
 }
 
@@ -176,17 +185,25 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 		return j, nil
 	}
 	j.flushing = true
+	j.flushGen++
+	myGen := j.flushGen
 	j.mu.Unlock()
+
+	releaseFlush := func() {
+		if j.flushGen == myGen {
+			j.flushing = false
+		}
+	}
 
 	for {
 		j.mu.Lock()
 		if j.Status == StatusCancelled {
-			j.flushing = false
+			releaseFlush()
 			j.mu.Unlock()
 			return nil, &ValidationError{Message: "upload cancelled"}
 		}
 		if j.BytesSent >= total {
-			j.flushing = false
+			releaseFlush()
 			j.mu.Unlock()
 			break
 		}
@@ -196,7 +213,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 		if isFinalClient {
 			need := total - j.BytesSent
 			if bufLen < need {
-				j.flushing = false
+				releaseFlush()
 				j.mu.Unlock()
 				break
 			}
@@ -208,7 +225,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 				flushThreshold = drive.DefaultFlushSize
 			}
 			if aligned < flushThreshold {
-				j.flushing = false
+				releaseFlush()
 				j.mu.Unlock()
 				break
 			}
@@ -228,10 +245,15 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 		res, err := s.Drive.UploadRange(ctx, sessionURL, start, end, total, chunk)
 		if err != nil {
 			j.mu.Lock()
-			j.Status = StatusFailed
-			j.Error = err.Error()
-			j.flushing = false
-			j.UpdatedAt = time.Now().UTC()
+			// Only the active flusher may fail the job — a concurrent completer
+			// must not be flipped back to failed.
+			if j.flushGen == myGen && j.Status != StatusCompleted && j.Status != StatusCancelled {
+				j.Status = StatusFailed
+				j.Error = err.Error()
+				j.buffer = nil
+				j.UpdatedAt = time.Now().UTC()
+			}
+			releaseFlush()
 			j.mu.Unlock()
 			return nil, err
 		}
@@ -254,7 +276,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			j.Status = StatusCompleted
 			j.FileID = res.FileID
 			j.buffer = nil
-			j.flushing = false
+			releaseFlush()
 			j.UpdatedAt = time.Now().UTC()
 			j.mu.Unlock()
 			return j, nil
@@ -263,9 +285,11 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 		j.mu.Unlock()
 	}
 
-	// Phase 3: Check if we expected completion but didn't get it
+	// Phase 3: Check if we expected completion but didn't get it.
+	// Only clear flushing if we are still the owning flusher — another
+	// goroutine may have started after we released the flag on break.
 	j.mu.Lock()
-	j.flushing = false
+	releaseFlush()
 	if j.BytesReceived >= total && j.BytesSent >= total && j.Status != StatusCompleted {
 		// All bytes sent but Drive didn't signal completion (e.g. last chunk got 308).
 		// Query the upload session status before declaring failure.
@@ -289,15 +313,21 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			j.mu.Unlock()
 			return j, nil
 		}
-		j.Status = StatusFailed
-		if qErr != nil {
-			j.Error = "upload finished but Drive did not complete (status query failed: " + qErr.Error() + ")"
-		} else {
-			j.Error = "upload finished but Drive did not complete"
+		if j.Status != StatusCompleted && j.Status != StatusCancelled {
+			j.Status = StatusFailed
+			j.buffer = nil
+			if qErr != nil {
+				j.Error = "upload finished but Drive did not complete (status query failed: " + qErr.Error() + ")"
+			} else {
+				j.Error = "upload finished but Drive did not complete"
+			}
+			j.UpdatedAt = time.Now().UTC()
+			errMsg := j.Error
+			j.mu.Unlock()
+			return nil, errors.New(errMsg)
 		}
-		j.UpdatedAt = time.Now().UTC()
 		j.mu.Unlock()
-		return nil, errors.New(j.Error)
+		return j, nil
 	}
 	j.mu.Unlock()
 

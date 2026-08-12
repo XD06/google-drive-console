@@ -312,5 +312,10 @@ func mapDriveError(status int, body []byte) error {
 
 // escapeDriveQuery escapes single quotes in Drive query strings.
 func escapeDriveQuery(s string) string {
+	// Escape backslashes first, then single quotes, per Google Drive query
+	// string rules. Escaping quotes alone is insufficient: a trailing (or
+	// odd) backslash in the input would escape the closing quote we add,
+	// breaking out of the quoted literal (query injection / syntax errors).
+	s = strings.ReplaceAll(s, "\\", "\\\\")
 	return strings.ReplaceAll(s, "'", "\\'")
 }

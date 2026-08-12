@@ -15,10 +15,12 @@ import (
 // because the resumable upload session may have expired.
 type PersistentStore struct {
 	*Store
-	path   string
-	mu     sync.Mutex
-	timer  *time.Timer
-	dirty  bool
+	path     string
+	mu       sync.Mutex
+	timer    *time.Timer
+	dirty    bool
+	reaperCh chan struct{}
+	reaperWg sync.WaitGroup
 }
 
 // NewPersistentStore creates a store that persists to the given file path.
@@ -41,6 +43,66 @@ func (ps *PersistentStore) Put(j *Job) {
 func (ps *PersistentStore) Delete(id string) {
 	ps.Store.Delete(id)
 	ps.scheduleSave()
+}
+
+// DeleteOlderThan removes terminal jobs older than maxAge and schedules a save if any were removed.
+func (ps *PersistentStore) DeleteOlderThan(maxAge time.Duration) int {
+	n := ps.Store.DeleteOlderThan(maxAge)
+	if n > 0 {
+		ps.scheduleSave()
+	}
+	return n
+}
+
+// StartReaper periodically deletes terminal jobs older than maxAge.
+// Safe to call once; subsequent calls are no-ops while a reaper is running.
+func (ps *PersistentStore) StartReaper(interval, maxAge time.Duration) {
+	if interval <= 0 || maxAge <= 0 {
+		return
+	}
+	ps.mu.Lock()
+	if ps.reaperCh != nil {
+		ps.mu.Unlock()
+		return
+	}
+	ps.reaperCh = make(chan struct{})
+	ch := ps.reaperCh
+	ps.mu.Unlock()
+
+	ps.reaperWg.Add(1)
+	go func() {
+		defer ps.reaperWg.Done()
+		// Run once immediately so long-lived processes don't wait a full interval
+		// after a crash-free restart that still has old jobs in memory.
+		if n := ps.DeleteOlderThan(maxAge); n > 0 {
+			log.Printf("upload reaper: removed %d terminal jobs older than %s", n, maxAge)
+		}
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				if n := ps.DeleteOlderThan(maxAge); n > 0 {
+					log.Printf("upload reaper: removed %d terminal jobs older than %s", n, maxAge)
+				}
+			case <-ch:
+				return
+			}
+		}
+	}()
+}
+
+// StopReaper stops the background reaper and waits for it to exit.
+func (ps *PersistentStore) StopReaper() {
+	ps.mu.Lock()
+	ch := ps.reaperCh
+	ps.reaperCh = nil
+	ps.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	close(ch)
+	ps.reaperWg.Wait()
 }
 
 // Update applies fn under the Store map lock and schedules a disk save.

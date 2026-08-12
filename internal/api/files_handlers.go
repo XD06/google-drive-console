@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -206,11 +207,28 @@ func (h *FilesHandlers) Download(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(statusCode) // 206 Partial Content or 200 OK
 		buf := make([]byte, 256*1024)
-		_, _ = io.CopyBuffer(w, body, buf)
+		if _, err := io.CopyBuffer(w, body, buf); err != nil {
+			// Headers (and often a Content-Length) are already sent, so we can no
+			// longer signal failure to the client via status code. Log it so a
+			// truncated (silently incomplete) download is at least observable.
+			log.Printf("download: range stream for %q interrupted: %v", id, err)
+		}
 		return
 	}
 
-	// Standard full download
+	// Standard full download.
+	// When the client already sent md5/ver hints, honor If-None-Match before
+	// opening the Drive media stream — otherwise every conditional revalidation
+	// wastes a full upstream GET that is discarded after headers.
+	if match := r.Header.Get("If-None-Match"); match != "" {
+		if etag := etagOf(hint); etag != "" && match == etag {
+			w.Header().Set("ETag", etag)
+			w.Header().Set("Cache-Control", "private, max-age=300")
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	var (
 		meta        drive.FileMeta
 		body        io.ReadCloser
@@ -251,7 +269,12 @@ func (h *FilesHandlers) Download(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	// Use 256 KiB buffer instead of the default 32 KiB for higher throughput.
 	buf := make([]byte, 256*1024)
-	_, _ = io.CopyBuffer(w, body, buf)
+	if _, err := io.CopyBuffer(w, body, buf); err != nil {
+		// 200 + Content-Length is already committed; a mid-stream failure
+		// yields a truncated file the client may treat as complete. Log it
+		// so the data-integrity issue is not entirely silent.
+		log.Printf("download: stream for %q interrupted: %v", id, err)
+	}
 }
 
 // downloadMetaHint builds a FileMeta from the download query parameters the
@@ -329,7 +352,7 @@ func (h *FilesHandlers) PutContent(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "bad_request", "file id required")
 		return
 	}
-	var req struct{
+	var req struct {
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

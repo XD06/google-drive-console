@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,15 +11,12 @@ import {
 } from "react";
 import {
   ApiError,
-  cancelUpload,
   copyFile,
   fileDownloadUrl,
 fileThumbnailUrl,
   fetchMe,
   formatBytes,
-  listFiles,
   logout,
-  uploadFile,
   createFolder,
   trashFile,
   renameFile,
@@ -45,13 +43,33 @@ fileThumbnailUrl,
   fetchOverview,
   type OverviewResponse,
 } from "./lib/api";
+import {
+  abortAllUploads,
+  clearUploadJobs,
+  runUpload,
+} from "./lib/uploadSession";
+import {
+  bustCache,
+  enterFolderFromSearch,
+  goCrumb as storeGoCrumb,
+  hydrate,
+  initFileStore,
+  insertResumableRow,
+  insertSimpleRow,
+  loadFiles,
+  loadMoreFiles,
+  openFolder as storeOpenFolder,
+  openRecentFolder as storeOpenRecentFolder,
+  patchItems,
+  resetOnLogout,
+  revalidateIfViewing,
+  useFileList,
+} from "./lib/fileStore";
 import { fileKind, fileKindLabel, type FileKind } from "./lib/fileKind";
-import { FileTypeIcon, KindIcon, iconBoxClass } from "./lib/FileTypeIcon";
+import { FileTypeIcon, iconBoxClass } from "./lib/FileTypeIcon";
 import {
   IconCheck,
-  IconChevronDown,
   IconChevronLeft,
-  IconChevronUp,
   IconClose,
   IconCopy,
   IconDownload,
@@ -75,8 +93,9 @@ import {
   IconUpload,
 } from "./lib/icons";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { FileRow } from "./components/FileRow";
+import { FilesPage } from "./components/FilesPage";
 import { MobileNav } from "./components/MobileNav";
+import { OverviewPage } from "./components/OverviewPage";
 import { Sidebar } from "./components/Sidebar";
 import { ToastHost } from "./components/ToastHost";
 import { UploadToastHost } from "./components/UploadToastHost";
@@ -107,17 +126,6 @@ type AuthState =
   | { status: "signed_out" }
   | { status: "signed_in"; me: MeResponse };
 
-type UploadJob = {
-  id: string;
-  name: string;
-  received: number;
-  total: number;
-  status: string;
-  error?: string;
-  serverId?: string;
-  cancelling?: boolean;
-};
-
 type SortKey = "name" | "size" | "modified";
 type SortDir = "asc" | "desc";
 
@@ -137,7 +145,6 @@ type ToastItem = {
   phase: "enter" | "in" | "out";
 };
 
-let uploadSeq = 0;
 let toastSeq = 0;
 
 // --- Navigation state persistence (survive page refresh) ---
@@ -179,16 +186,20 @@ function clearNavState() {
 
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
-  const [folderId, setFolderId] = useState<string | undefined>(undefined);
-  const [trail, setTrail] = useState<{ id: string; name: string }[]>([]);
-  const [items, setItems] = useState<FileItem[]>([]);
-  const [listError, setListError] = useState<string | null>(null);
-  const [listLoading, setListLoading] = useState(false);
-  const [listNextToken, setListNextToken] = useState<string | null>(null);
-  const [listLoadingMore, setListLoadingMore] = useState(false);
-const [renderLimit, setRenderLimit] = useState(200); // F2: progressive rendering
+  // File-list subsystem lives in fileStore (useSyncExternalStore). These names
+  // are read-only views; all mutations go through the imported store actions.
+  const {
+    items,
+    folderId,
+    trail,
+    nextToken: listNextToken,
+    loading: listLoading,
+    loadingMore: listLoadingMore,
+    error: listError,
+    version: listVersion,
+  } = useFileList();
+  const [renderLimit, setRenderLimit] = useState(200); // F2: progressive rendering
   const [busy, setBusy] = useState(false);
-  const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [prefs, setPrefs] = useLocalStorage("dbc.prefs", { banner: true, uploadToast: true, compact: false, autoDismiss: true });
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
@@ -215,8 +226,11 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prefsRef = useRef(prefs);
   const dragDepthRef = useRef(0);
-  const uploadAbortRef = useRef<Map<string, AbortController>>(new Map());
   prefsRef.current = prefs;
+  // Latest App callbacks the fileStore may invoke (toast, sign-out, recents).
+  // Refreshed every render like prefsRef; wired into the store once on mount.
+  const fileSinkRef = useRef({ showToast, setAuth, addRecentFolder });
+  fileSinkRef.current = { showToast, setAuth, addRecentFolder };
 
   type EditorState = {
     id: string | null;
@@ -268,6 +282,9 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
   } | null;
   const [imagePreview, setImagePreview] = useState<ImagePreviewState>(null);
   const imageUrlRef = useRef<string | null>(null);
+  // Monotonic gens so a slow open-A cannot clobber open-B (or leak blob URLs).
+  const imageOpenGenRef = useRef(0);
+  const editorOpenGenRef = useRef(0);
 
   const [searchQ, setSearchQ] = useState("");
   const [searchScope, setSearchScope] = useState<SearchScope>("drive");
@@ -281,10 +298,6 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
   const [searchActiveQuery, setSearchActiveQuery] = useState("");
   const searchAbortRef = useRef<AbortController | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function patchJob(id: string, patch: Partial<UploadJob>) {
-    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
-  }
 
   function askConfirm(opts: {
     title: string;
@@ -475,137 +488,51 @@ const [renderLimit, setRenderLimit] = useState(200); // F2: progressive renderin
     void refreshAuth();
   }, [refreshAuth]);
 
-  // Simple in-memory cache for stale-while-revalidate (LRU capped at 30 entries)
-  const folderCacheRef = useRef<Map<string, { items: FileItem[]; folderId: string; nextPageToken: string | null }>>(new Map());
-  const FOLDER_CACHE_MAX = 30;
-  function folderCacheSet(key: string, value: { items: FileItem[]; folderId: string; nextPageToken: string | null }) {
-    const cache = folderCacheRef.current;
-    // Delete first to refresh insertion order (Map preserves order)
-    cache.delete(key);
-    cache.set(key, value);
-    // Evict oldest entries if over limit
-    while (cache.size > FOLDER_CACHE_MAX) {
-      const oldest = cache.keys().next().value;
-      if (oldest !== undefined) cache.delete(oldest);
-      else break;
-    }
-  }
-
-  // AbortController for list requests — cancels stale fetches on rapid navigation
-  const listAbortRef = useRef<AbortController | null>(null);
-
-  const loadFiles = useCallback(async (fid?: string) => {
-    // Cancel any in-flight list request
-    listAbortRef.current?.abort();
-    const ac = new AbortController();
-    listAbortRef.current = ac;
-
-    const cacheKey = fid ?? "root";
-    const cached = folderCacheRef.current.get(cacheKey);
-    if (cached) {
-      // Show cached data immediately (no loading screen)
-      setItems(cached.items);
-      setFolderId(cached.folderId);
-      setListNextToken(cached.nextPageToken);
-      setSelectedIds(new Set());
-      setSelectedId(null);
-      setListError(null);
-      setRenderLimit(200); // F2: reset progressive render limit
-      // Don't set loading=true; fetch silently in background
+  // File-list navigation persistence + fileStore wiring.
+  // The list subsystem (items/folderId/trail/cache/abort/paging) now lives in
+  // ./lib/fileStore; App only restores/saves the location and injects UI sinks.
+  useEffect(() => {
+    if (auth.status !== "signed_in") return;
+    // Restore where the user was before the refresh instead of always going to root.
+    const nav = loadNavState();
+    if (nav && (nav.folderId || nav.trail.length > 0)) {
+      const fid = nav.folderId && nav.folderId !== "root" ? nav.folderId : undefined;
+      hydrate({ folderId: fid, trail: nav.trail });
+      setView(nav.view === "overview" ? "overview" : "files");
+      void loadFiles(fid);
     } else {
-      setListLoading(true);
-      setListError(null);
-      setListNextToken(null);
+      hydrate({ folderId: undefined, trail: [] });
+      void loadFiles(undefined);
     }
-    try {
-      const res = await listFiles(fid ? { folderId: fid } : {}, ac.signal);
-      // If this request was superseded, discard the result
-      if (ac.signal.aborted) return;
-      setItems(res.items);
-      setFolderId(res.folderId);
-      setListNextToken(res.nextPageToken ?? null);
-      setSelectedIds(new Set());
-      setSelectedId(null);
-      // Cache the result (LRU)
-      folderCacheSet(cacheKey, { items: res.items, folderId: res.folderId, nextPageToken: res.nextPageToken ?? null });
-    } catch (e) {
-      if (ac.signal.aborted) return; // cancelled — ignore
-      if (e instanceof ApiError && e.status === 401) {
-        setAuth({ status: "signed_out" });
-        setListError(null);
-      } else {
-        setListError(e instanceof Error ? e.message : "Failed to list files");
-      }
-      if (!cached) {
-        setItems([]);
-        setListNextToken(null);
-      }
-    } finally {
-      if (!ac.signal.aborted) setListLoading(false);
-    }
+  }, [auth.status]);
+
+  // Keep the persisted location in sync as the user navigates.
+  useEffect(() => {
+    if (auth.status !== "signed_in") return;
+    saveNavState({ v: 1, folderId, trail, view });
+  }, [auth.status, folderId, trail, view]);
+
+  // Navigation = clear selection. The store bumps `version` only on a full-table
+  // replace (cache hit + network success + logout reset), faithfully reproducing
+  // the previous inline setSelected* calls that lived inside loadFiles.
+  useLayoutEffect(() => {
+    setSelectedIds(new Set());
+    setSelectedId(null);
+  }, [listVersion]);
+
+  // Reset the progressive render window whenever the open folder changes.
+  useLayoutEffect(() => {
+    setRenderLimit(200);
+  }, [folderId]);
+
+  // Wire App-side effects into the (UI-agnostic) fileStore once on mount.
+  useEffect(() => {
+    initFileStore({
+      onError: (msg) => fileSinkRef.current.showToast(msg, true),
+      onUnauthorized: () => fileSinkRef.current.setAuth({ status: "signed_out" }),
+      onFolderOpened: (id, name) => fileSinkRef.current.addRecentFolder(id, name),
+    });
   }, []);
-
-// Patch rows in place (live list + folder cache) right after a mutation, so the
-// background revalidation triggered afterwards never re-shows stale rows. This
-// fixes the visible "flash" where e.g. a renamed row briefly reverted to its
-// old name (shown from the stale cache) before the refetch landed.
-function patchItems(updater: (items: FileItem[]) => FileItem[]) {
-setItems((prev) => updater(prev));
-const key = folderId ?? "root";
-const cached = folderCacheRef.current.get(key);
-if (cached) {
-  folderCacheSet(key, { ...cached, items: updater(cached.items) });
-}
-}
-
-const loadMoreFiles = useCallback(async () => {
-    if (!listNextToken || listLoadingMore || listLoading) return;
-    setListLoadingMore(true);
-    try {
-      const res = await listFiles({
-        folderId: folderId && folderId !== "root" ? folderId : undefined,
-        pageToken: listNextToken,
-      });
-      setItems((prev) => {
-        const seen = new Set(prev.map((it) => it.id));
-        const merged = [...prev];
-        for (const it of res.items) {
-          if (!seen.has(it.id)) merged.push(it);
-        }
-        return merged;
-      });
-      setListNextToken(res.nextPageToken ?? null);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        setAuth({ status: "signed_out" });
-      } else {
-        showToast(e instanceof Error ? e.message : "Failed to load more", true);
-      }
-    } finally {
-      setListLoadingMore(false);
-    }
-  }, [folderId, listLoading, listLoadingMore, listNextToken]);
-
-useEffect(() => {
-if (auth.status !== "signed_in") return;
-// Restore where the user was before the refresh instead of always going to root.
-const nav = loadNavState();
-if (nav && (nav.folderId || nav.trail.length > 0)) {
-  const fid = nav.folderId && nav.folderId !== "root" ? nav.folderId : undefined;
-  setTrail(nav.trail);
-  setView(nav.view === "overview" ? "overview" : "files");
-  void loadFiles(fid);
-} else {
-  void loadFiles(undefined);
-  setTrail([]);
-}
-}, [auth.status, loadFiles]);
-
-// Keep the persisted location in sync as the user navigates.
-useEffect(() => {
-if (auth.status !== "signed_in") return;
-saveNavState({ v: 1, folderId, trail, view });
-}, [auth.status, folderId, trail, view]);
 
   const loadOverview = useCallback(async () => {
     setOverviewLoading(true);
@@ -665,51 +592,31 @@ saveNavState({ v: 1, folderId, trail, view });
   async function onLogout() {
     setBusy(true);
     try {
-await logout(false);
-setAuth({ status: "signed_out" });
-setItems([]);
-setTrail([]);
-setFolderId(undefined);
-setJobs([]);
-clearNavState();
+      // Stop in-flight resumable uploads before clearing UI state — otherwise
+      // chunk loops keep PUTting into a signed-out session (401 + retry burn).
+      abortAllUploads();
+      clearUploadJobs();
+      await logout(false);
+      setAuth({ status: "signed_out" });
+      resetOnLogout();
+      clearNavState();
       showToast("Session ended", false, "Disconnected");
     } catch (e) {
-      setListError(e instanceof Error ? e.message : "Logout failed");
       showToast(e instanceof Error ? e.message : "Logout failed", true);
     } finally {
       setBusy(false);
     }
   }
 
-  // Guards against duplicate folder activations. On touch devices a double-tap
-  // (or a second tap while the list is still loading) fires onActivate more
-  // than once for the same folder; without a guard each call appends a crumb
-  // and refetches, producing duplicated breadcrumbs ("X / X").
-  const lastFolderOpenRef = useRef<{ id: string; at: number }>({ id: "", at: 0 });
-
+  // The list subsystem (trail, dedup guard, recent-folder tracking) now lives in
+  // the fileStore; this is a thin wrapper that gates App-owned search UI on
+  // whether navigation actually happened (a debounced duplicate is a no-op).
   function openFolder(item: FileItem) {
-    if (!item.isFolder) return;
-    const fromSearch = searchMode;
-    if (!fromSearch) {
-      // Already inside (or already entering) this folder — ignore the duplicate.
-      if (folderId === item.id || trail[trail.length - 1]?.id === item.id) return;
-      const now = Date.now();
-      const last = lastFolderOpenRef.current;
-      if (last.id === item.id && now - last.at < 500) return;
-      lastFolderOpenRef.current = { id: item.id, at: now };
+    const navigated = storeOpenFolder(item, { fromSearch: searchMode });
+    if (navigated) {
+      setSearchMode(false);
+      setSearchModalOpen(false);
     }
-    setSearchMode(false);
-    setSearchModalOpen(false);
-    if (fromSearch) {
-      setTrail([{ id: item.id, name: item.name }]);
-    } else {
-      // Backstop: never append the same folder twice in a row (duplicate keys).
-      setTrail((t) =>
-        t[t.length - 1]?.id === item.id ? t : [...t, { id: item.id, name: item.name }],
-      );
-    }
-    addRecentFolder(item.id, item.name);
-    void loadFiles(item.id);
   }
 
   function openItem(item: FileItem) {
@@ -857,8 +764,7 @@ clearNavState();
     setSearchModalOpen(false);
     if (item.isFolder) {
       setSearchMode(false);
-      setTrail([{ id: item.id, name: item.name }]);
-      void loadFiles(item.id);
+      enterFolderFromSearch(item);
       return;
     }
     if (isImagePreviewable(item) || isVideoPreviewable(item) || isPdfPreviewable(item)) void openImageFile(item);
@@ -1022,7 +928,7 @@ void loadFiles(folderId);
       showToast(`Copied "${copyItemState.name}"`);
       setCopyOpen(false);
       setCopyItemState(null);
-      folderCacheRef.current.delete(parentId);
+      bustCache(parentId);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Copy failed", true);
     } finally {
@@ -1062,8 +968,7 @@ void loadFiles(folderId);
   }
 
   function openRecentFolder(id: string, name: string) {
-    setTrail([{ id, name }]);
-    void loadFiles(id);
+    storeOpenRecentFolder(id, name);
     setNavOpen(false);
   }
 
@@ -1244,6 +1149,7 @@ void loadFiles(folderId);
   }
 
   function closeImagePreview() {
+    imageOpenGenRef.current += 1;
     if (imageUrlRef.current) {
       URL.revokeObjectURL(imageUrlRef.current);
       imageUrlRef.current = null;
@@ -1252,6 +1158,7 @@ void loadFiles(folderId);
   }
 
   async function openImageFile(item: FileItem) {
+    const gen = ++imageOpenGenRef.current;
     if (imageUrlRef.current) {
       URL.revokeObjectURL(imageUrlRef.current);
       imageUrlRef.current = null;
@@ -1260,6 +1167,7 @@ void loadFiles(folderId);
     // Video & PDF: use streaming URL directly (server supports Range requests)
     // — no need to download the entire file into memory first.
     if (isVideoPreviewable(item) || isPdfPreviewable(item)) {
+      if (gen !== imageOpenGenRef.current) return;
       setImagePreview({
         id: item.id,
         name: item.name,
@@ -1281,6 +1189,7 @@ void loadFiles(folderId);
     });
     try {
       const blob = await fetchFileBlob(item.id, item);
+      if (gen !== imageOpenGenRef.current) return;
       const url = URL.createObjectURL(blob);
       imageUrlRef.current = url;
       setImagePreview({
@@ -1291,6 +1200,7 @@ void loadFiles(folderId);
         error: null,
       });
     } catch (e) {
+      if (gen !== imageOpenGenRef.current) return;
       const msg = e instanceof Error ? e.message : "Failed to open image";
       showToast(msg, true);
       setImagePreview(null);
@@ -1298,6 +1208,7 @@ void loadFiles(folderId);
   }
 
   async function openTextFile(item: FileItem) {
+    const gen = ++editorOpenGenRef.current;
     setEditor({
       id: item.id,
       name: item.name,
@@ -1310,6 +1221,7 @@ void loadFiles(folderId);
     });
     try {
       const data = await fetchFileContent(item.id);
+      if (gen !== editorOpenGenRef.current) return;
       setEditor({
         id: item.id,
         name: data.name || item.name,
@@ -1322,6 +1234,7 @@ void loadFiles(folderId);
       });
       // focus moved to effect
     } catch (e) {
+      if (gen !== editorOpenGenRef.current) return;
       showToast(e instanceof Error ? e.message : "Failed to open file", true);
       setEditor(null);
     }
@@ -1336,14 +1249,26 @@ void loadFiles(folderId);
       setSaveAsOpen(true);
       return;
     }
-    setEditor({ ...editor, saving: true });
+    // Snapshot id + content at save start. Functional updates keep keystrokes
+    // typed during the PUT; original is set to the snapshot (not live content)
+    // so edits made while saving stay dirty.
+    const id = editor.id;
+    const saved = editor.content;
+    const name = editor.name;
+    setEditor((prev) => (prev && prev.id === id ? { ...prev, saving: true } : prev));
     try {
-      await saveFileContent(editor.id, editor.content);
-      setEditor({ ...editor, original: editor.content, saving: false, error: null });
-      showToast(`Saved ${editor.name}`);
+      await saveFileContent(id, saved);
+      setEditor((prev) =>
+        prev && prev.id === id
+          ? { ...prev, original: saved, saving: false, error: null }
+          : prev,
+      );
+      showToast(`Saved ${name}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Save failed";
-      setEditor({ ...editor, saving: false, error: msg });
+      setEditor((prev) =>
+        prev && prev.id === id ? { ...prev, saving: false, error: msg } : prev,
+      );
       showToast(msg, true);
     }
   }
@@ -1401,9 +1326,11 @@ void loadFiles(folderId);
         if (editor) void closeEditor();
       }
     }
+    // Depend on presence flags, not the full editor object — otherwise every
+    // keystroke rebinds the global Escape listener.
     if (editor || imagePreview || confirm) window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editor, imagePreview, confirm]);
+  }, [!!editor, !!imagePreview, !!confirm]);
 
   useEffect(() => {
     if (editor && !editor.loading) {
@@ -1440,112 +1367,7 @@ void loadFiles(folderId);
   function goCrumb(index: number) {
     setSearchMode(false);
     setSearchModalOpen(false);
-    if (index < 0) {
-      setTrail([]);
-      void loadFiles(undefined);
-      return;
-    }
-    const next = trail.slice(0, index + 1);
-    setTrail(next);
-    void loadFiles(next[next.length - 1]?.id);
-  }
-
-  async function runUpload(file: File, parentId?: string) {
-    const id = `job-${++uploadSeq}`;
-    const ac = new AbortController();
-    uploadAbortRef.current.set(id, ac);
-    const draft: UploadJob = {
-      id,
-      name: file.name,
-      received: 0,
-      total: file.size,
-      status: "starting",
-    };
-    setJobs((prev) => [draft, ...prev]);
-    try {
-      const job = await uploadFile(file, {
-        parentId,
-        signal: ac.signal,
-        onCreated: (serverId) => patchJob(id, { serverId }),
-        onProgress: (received, total, status) => {
-          patchJob(id, { received, total, status });
-        },
-      });
-      const cancelled = job.status === "cancelled" || ac.signal.aborted;
-      const ok = job.status === "completed";
-      patchJob(id, {
-        received: job.bytesReceived ?? file.size,
-        total: file.size,
-        status: cancelled ? "cancelled" : ok ? "completed" : job.status,
-        error: cancelled ? undefined : job.error ?? undefined,
-        serverId: job.uploadId,
-      });
-      appendUploadHistory({
-        name: file.name,
-        status: cancelled ? "cancelled" : ok ? "completed" : job.status || "failed",
-        at: new Date().toISOString(),
-        error: cancelled ? undefined : job.error ?? undefined,
-      });
-      if (cancelled) {
-        // Progress toast already shows cancelled state; auto-dismiss shortly.
-        window.setTimeout(() => dismissUploadJob(id), 2800);
-        return false;
-      }
-      if (ok) {
-        window.setTimeout(() => dismissUploadJob(id), 3200);
-      }
-      // Errors stay until user dismisses the floating progress card.
-      return ok;
-    } catch (e) {
-      const aborted =
-        ac.signal.aborted ||
-        (e instanceof ApiError && e.code === "upload_aborted");
-      if (aborted) {
-        patchJob(id, { status: "cancelled", cancelling: false, error: undefined });
-        appendUploadHistory({
-          name: file.name,
-          status: "cancelled",
-          at: new Date().toISOString(),
-        });
-        window.setTimeout(() => dismissUploadJob(id), 2800);
-        return false;
-      }
-      const err = e instanceof Error ? e.message : "Upload failed";
-      patchJob(id, {
-        status: "failed",
-        error: err,
-        cancelling: false,
-      });
-      appendUploadHistory({ name: file.name, status: "failed", at: new Date().toISOString(), error: err });
-      return false;
-    } finally {
-      uploadAbortRef.current.delete(id);
-    }
-  }
-
-  async function cancelJob(job: UploadJob) {
-    if (
-      job.cancelling ||
-      job.status === "completed" ||
-      job.status === "done" ||
-      job.status === "failed" ||
-      job.status === "cancelled"
-    ) {
-      return;
-    }
-    patchJob(job.id, { cancelling: true, status: "cancelling" });
-    uploadAbortRef.current.get(job.id)?.abort();
-    if (job.serverId) {
-      try {
-        await cancelUpload(job.serverId);
-      } catch {
-        /* best-effort; abort still stops client loop */
-      }
-    }
-  }
-
-  function dismissUploadJob(id: string) {
-    setJobs((prev) => prev.filter((j) => j.id !== id));
+    storeGoCrumb(index);
   }
 
   function onMainDragEnter(e: DragEvent<HTMLElement>) {
@@ -1578,12 +1400,34 @@ void loadFiles(folderId);
   async function onPickFile(fileList: FileList | null) {
     if (!fileList?.length || auth.status !== "signed_in") return;
     const files = Array.from(fileList);
+    // Capture destination at pick time — user may navigate while uploads run.
     const parentId = folderId && folderId !== "root" ? folderId : undefined;
-    setBusy(true);
+    const destKey = parentId ?? "root";
+    // busy gates pick/mkdir only — resumable transfers already have job cards
+    // and must not lock the toolbar for multi-GB uploads.
+    const hasSmall = files.some((f) => f.size < SIMPLE_UPLOAD_THRESHOLD);
+    if (hasSmall) setBusy(true);
+
+    /** Insert a completed large upload into the open folder immediately. */
+    const insertUploadedFile = (file: File, fileId?: string | null) => {
+      if (!fileId) return;
+      const row: FileItem = {
+        id: fileId,
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        modifiedTime: new Date().toISOString(),
+        isFolder: false,
+      };
+      // Store busts the destination cache and only inserts if still viewing it,
+      // never clobbering a row a concurrent revalidate may already hold.
+      insertResumableRow(destKey, row);
+    };
+
     try {
       // Concurrent upload: max 4 parallel, rest queued (F1: 2→4)
       const CONCURRENCY = 4;
-      let anyOk = false;
+      let anyLargeOk = false;
       let idx = 0;
       const runNext = async (): Promise<void> => {
         if (idx >= files.length) return;
@@ -1592,31 +1436,39 @@ void loadFiles(folderId);
         if (file.size < SIMPLE_UPLOAD_THRESHOLD) {
           try {
             const item = await simpleUpload(file, parentId);
-            // Incrementally insert at top of list — no full reload needed
-            setItems((prev) => [item, ...prev]);
-            folderCacheRef.current.delete(parentId ?? "root");
-            anyOk = true;
+            // Incrementally insert at top of list — no full reload needed.
+            // Store busts the cache + replaces any stale copy when still viewing.
+            insertSimpleRow(destKey, item);
             showToast(`Uploaded "${file.name}"`);
           } catch (e) {
             showToast(e instanceof Error ? e.message : `Upload failed: ${file.name}`, true);
           }
         } else {
-          const ok = await runUpload(file, parentId);
-          if (ok) anyOk = true;
+          const ok = await runUpload(file, parentId, {
+            onHistory: appendUploadHistory,
+            onTerminal: (ev) => {
+              if (ev.ok) {
+                anyLargeOk = true;
+                insertUploadedFile(ev.file, ev.fileId);
+                showToast(`Uploaded "${ev.file.name}"`);
+              } else if (!ev.cancelled && ev.error) {
+                showToast(ev.error, true, `Upload failed: ${ev.file.name}`);
+              }
+            },
+          });
+          if (ok) anyLargeOk = true;
         }
         return runNext();
       };
       const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, () => runNext());
       await Promise.all(workers);
-      // Only reload if large files were uploaded (small files already inserted incrementally)
-      if (anyOk) {
-        folderCacheRef.current.delete(parentId ?? "root");
-        // Don't reload if only small files were uploaded — they're already in the list
-        const hasLargeFiles = files.some((f) => f.size >= SIMPLE_UPLOAD_THRESHOLD);
-        if (hasLargeFiles) await loadFiles(folderId);
+      // Background revalidate destination after large uploads (Drive eventual consistency /
+      // name-sorted lists). Only if user is still viewing that folder.
+      if (anyLargeOk) {
+        revalidateIfViewing(destKey);
       }
     } finally {
-      setBusy(false);
+      if (hasSmall) setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -1659,7 +1511,7 @@ void loadFiles(folderId);
     [],
   );
 
-  // Enter opens selection; Delete/Backspace moves to trash (files view only).
+  // Enter opens selection; Delete moves to trash (files view only).
   // Uses ref pattern: a single stable listener reads the latest state from a ref,
   // avoiding frequent addEventListener/removeEventListener churn on every selection
   // or sort change (the previous 17-dep effect re-bound on ~every interaction).
@@ -1754,7 +1606,10 @@ void loadFiles(folderId);
         return;
       }
 
-      if (e.key === "Delete" || e.key === "Backspace") {
+      if (e.key === "Delete") {
+        // Note: only the dedicated Delete key trashes. Plain Backspace is
+        // intentionally excluded — users commonly press it expecting "go
+        // back", and mapping it to trash is a surprising, destructive footgun.
         if (s.selectedIds.size > 1) {
           e.preventDefault();
           void keyActionsRef.current.doBulkTrash();
@@ -2167,385 +2022,61 @@ void loadFiles(folderId);
             onDrop={view === "files" ? onMainDrop : undefined}
           >
             {view === "overview" ? (
-              <div className="overview-page">
-                {overviewError && (
-                  <div className="ov-banner ov-banner-error" role="alert">
-                    <div>
-                      <strong>Couldn&apos;t load Drive storage</strong>
-                      <p>{overviewError}</p>
-                    </div>
-                    <button type="button" className="btn btn-sm" onClick={() => void loadOverview()}>
-                      Retry
-                    </button>
-                  </div>
-                )}
-
-                <section className="ov-hero" aria-label="Storage">
-                  <div className="ov-hero-top">
-                    <div className="ov-hero-identity">
-                      <div className="ov-hero-avatar" aria-hidden="true">
-                        {(overview?.user?.displayName || overview?.user?.email || email || "?")
-                          .slice(0, 1)
-                          .toUpperCase()}
-                      </div>
-                      <div className="ov-hero-meta">
-                        <h2>Google Drive storage</h2>
-                        <p className="ov-muted">
-                          {overviewLoading && !overview
-                            ? "Loading quota…"
-                            : overview?.user?.email || email || "Signed in"}
-                          {overview?.user?.displayName ? ` · ${overview.user.displayName}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="ov-hero-kpis">
-                      <div className="ov-kpi">
-                        <span className="ov-kpi-label">Used</span>
-                        <strong className="ov-kpi-value">
-                          {overview ? formatBytes(storageUsage) : "—"}
-                        </strong>
-                      </div>
-                      <div className="ov-kpi">
-                        <span className="ov-kpi-label">Limit</span>
-                        <strong className="ov-kpi-value">
-                          {overview && storageLimit > 0 ? formatBytes(storageLimit) : "—"}
-                        </strong>
-                      </div>
-                      <div className="ov-kpi">
-                        <span className="ov-kpi-label">Free</span>
-                        <strong className="ov-kpi-value">
-                          {overview && storageLimit > 0
-                            ? formatBytes(Math.max(0, storageLimit - storageUsage))
-                            : "—"}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="ov-hero-bar-wrap">
-                    <div
-                      className={`ov-bar ov-bar-lg${storagePct >= 90 ? " is-critical" : storagePct >= 75 ? " is-warn" : ""}`}
-                      role="progressbar"
-                      aria-valuenow={storagePct}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label="Storage used"
-                    >
-                      <i style={{ width: overview ? `${Math.max(storagePct, storagePct > 0 ? 1.5 : 0)}%` : "0%" }} />
-                    </div>
-                    <div className="ov-hero-bar-meta">
-                      <span>
-                        {overview ? `${storagePct}% full` : overviewLoading ? "…" : "No data"}
-                      </span>
-                      <span className="ov-muted">
-                        Drive files {overview ? formatBytes(overview.storage.usageInDrive) : "—"}
-                      </span>
-                    </div>
-                  </div>
-                </section>
-
-                <div className="overview-grid">
-                  <section className="ov-card" aria-label="Uploads">
-                    <div className="ov-card-head">
-                      <div>
-                        <h3>Uploads</h3>
-                        <p className="ov-card-desc">Local console history (this browser)</p>
-                      </div>
-                      <span className="ov-pill">{uploadHistory.length} total</span>
-                    </div>
-                    <div className="ov-stat-row">
-                      <div className="ov-stat is-ok">
-                        <strong>{histOk}</strong>
-                        <span>Success</span>
-                      </div>
-                      <div className="ov-stat is-bad">
-                        <strong>{histFail}</strong>
-                        <span>Failed</span>
-                      </div>
-                      <div className="ov-stat">
-                        <strong>{jobs.length}</strong>
-                        <span>Session</span>
-                      </div>
-                    </div>
-                    <ul className="ov-hist">
-                      {uploadHistory.slice(0, 10).length === 0 && (
-                        <li className="ov-empty">
-                          <span>No uploads yet</span>
-                          <span className="ov-muted">Upload from Files to see history here</span>
-                        </li>
-                      )}
-                      {uploadHistory.slice(0, 10).map((h, i) => (
-                        <li key={`${h.at}-${i}`} className={h.status === "failed" || h.error ? "is-err" : "is-ok"}>
-                          <span className="ov-hist-dot" aria-hidden="true" />
-                          <span className="ov-hist-name" title={h.name}>{h.name}</span>
-                          <span className="ov-hist-meta">{h.status}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-
-                  <section className="ov-card" aria-label="File types">
-                    <div className="ov-card-head">
-                      <div>
-                        <h3>Types in view</h3>
-                        <p className="ov-card-desc">
-                          {items.length} item{items.length === 1 ? "" : "s"} in current folder listing
-                        </p>
-                      </div>
-                      <span className="ov-pill">{typeCounts.length} kinds</span>
-                    </div>
-                    {items.length === 0 ? (
-                      <div className="ov-empty">
-                        <span>No files loaded</span>
-                        <span className="ov-muted">Open Files to browse a folder first</span>
-                      </div>
-                    ) : (
-                      <ul className="ov-types">
-                        {typeCounts.map((t) => {
-                          const pct = Math.max(4, (t.count / typeTotal) * 100);
-                          return (
-                            <li key={t.kind} className="ov-type-row">
-                              <span className={iconBoxClass(t.kind)} aria-hidden="true">
-                                <KindIcon kind={t.kind} />
-                              </span>
-                              <div className="ov-type-copy">
-                                <span className="ov-type-label">{t.label}</span>
-                                <span className={`ov-type-bar kind-bar-${t.kind}`}>
-                                  <i style={{ width: `${pct}%` }} />
-                                </span>
-                              </div>
-                              <span className="ov-type-count">{t.count}</span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </section>
-
-                  <section className="ov-card ov-card-tips" aria-label="Tips">
-                    <div className="ov-card-head">
-                      <div>
-                        <h3>Quick tips</h3>
-                        <p className="ov-card-desc">How this console works</p>
-                      </div>
-                    </div>
-                    <ul className="ov-tips">
-                      <li className="tip-desktop">Double-click a folder to open it; double-click text/code to edit.</li>
-                      <li className="tip-mobile">Tap a folder to open it; tap text/code to edit. Long-press to select.</li>
-                      <li className="tip-desktop">Drag files onto the Files view to upload into the current folder.</li>
-                      <li className="tip-mobile">Tap the + button to upload files or create folders.</li>
-                      <li>Type stats cover the current listing only — not the whole Drive.</li>
-                      <li>Use localhost:5174 so the session cookie matches the API host.</li>
-                    </ul>
-                  </section>
-                </div>
-              </div>
+              <OverviewPage
+                overview={overview}
+                overviewLoading={overviewLoading}
+                overviewError={overviewError}
+                onRetry={() => void loadOverview()}
+                email={email}
+                storageUsage={storageUsage}
+                storageLimit={storageLimit}
+                storagePct={storagePct}
+                uploadHistory={uploadHistory}
+                histOk={histOk}
+                histFail={histFail}
+                itemCount={items.length}
+                typeCounts={typeCounts}
+                typeTotal={typeTotal}
+              />
             ) : (
-            <>
-            <div
-              className={`drop-overlay${dropOn ? " is-on" : ""}`}
-              id="drop-overlay"
-              aria-hidden={!dropOn}
-            >
-              Drop files to upload
-            </div>
-            {(searchMode ? searchError : listError) && (
-              <p className="list-error">{searchMode ? searchError : listError}</p>
-            )}
-            <div className="table-wrap">
-              {(() => {
-                const tableItems = searchMode ? sortedSearchResults : sortedItems;
-                const tableLoading = searchMode ? searchLoading : listLoading;
-                const tableError = searchMode ? searchError : listError;
-                const sortAria = (key: SortKey) =>
-                  sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none";
-                const SortIcon = ({ col }: { col: SortKey }) =>
-                  sortKey !== col ? null : sortDir === "asc" ? (
-                    <IconChevronUp size={12} />
-                  ) : (
-                    <IconChevronDown size={12} />
-                  );
-                return (
-              <div style={{ position: "relative" }}>
-              {selectedIds.size > 0 && (
-                <div className="selection-bar" role="status">
-                  <span className="selection-count">{selectedIds.size} selected</span>
-<button type="button" className="btn btn-ghost btn-sm" onClick={() => doBulkDownload(tableItems)}>
-<IconDownload size={14} /> Download
-</button>
-<button type="button" className="btn btn-ghost btn-sm" onClick={() => void doBulkZip(tableItems)}>
-<IconDownload size={14} /> ZIP
-</button>
-                  <button type="button" className="btn btn-ghost btn-sm btn-danger" onClick={() => void doBulkTrash()}>
-                    <IconTrash size={14} /> Trash
-                  </button>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>
-                    Clear
-                  </button>
-                </div>
-              )}
-              {(tableLoading || tableItems.length > 0 || tableError) && (
-                <table className="file-table">
-                  <thead>
-                    <tr>
-                      <th className="col-check">
-                        <input
-                          type="checkbox"
-                          className="row-check"
-                          aria-label="Select all"
-                          checked={tableItems.length > 0 && tableItems.every((it) => selectedIds.has(it.id))}
-                          onChange={() => toggleSelectAllVisible(tableItems)}
-                        />
-                      </th>
-                      <th aria-sort={sortAria("name")}>
-                        <button type="button" className="th-sort" onClick={() => toggleSort("name")}>
-                          Name <SortIcon col="name" />
-                        </button>
-                      </th>
-                      <th aria-sort={sortAria("size")}>
-                        <button type="button" className="th-sort" onClick={() => toggleSort("size")}>
-                          Size <SortIcon col="size" />
-                        </button>
-                      </th>
-                      <th aria-sort={sortAria("modified")}>
-                        <button type="button" className="th-sort" onClick={() => toggleSort("modified")}>
-                          Modified <SortIcon col="modified" />
-                        </button>
-                      </th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      const target = e.target as HTMLElement;
-                      const tr = target.closest("tr");
-                      const id = tr?.getAttribute("data-id");
-                      const item = id ? tableItems.find((it) => it.id === id) ?? null : null;
-                      setCtxMenu({ x: e.clientX, y: e.clientY, item });
-                    }}
-                  >
-                    {tableLoading && tableItems.length === 0 && (
-                      Array.from({ length: 5 }).map((_, i) => (
-                        <tr key={`skel-${i}`} className="skel-row-tr">
-                          <td colSpan={5} style={{ padding: 0 }}>
-                            <div className="skel-row">
-                              <span className="skel-bar skel-icon" style={{ width: 24, height: 24 }} />
-                              <span className="skel-bar skel-name" style={{ width: `${60 + Math.random() * 30}%` }} />
-                              <span className="skel-bar skel-size" />
-                              <span className="skel-bar skel-date" />
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                    {tableItems.slice(0, renderLimit).map((item) => (
-                      <FileRow
-                        key={item.id}
-                        item={item}
-                        isActive={selectedId === item.id}
-                        isMulti={selectedIds.has(item.id)}
-                        isDragging={dragItemId === item.id}
-                        isDropTarget={dragOverFolder === item.id}
-                        dragActive={dragItemId !== null}
-                        onDragStart={rowHandlers.onDragStart}
-                        onDragEnd={rowHandlers.onDragEnd}
-                        onDrop={rowHandlers.onDrop}
-                        onDragOverFolder={rowHandlers.onDragOverFolder}
-                        onDragLeaveFolder={rowHandlers.onDragLeaveFolder}
-                        onActivate={rowHandlers.onActivate}
-                        onToggleSelect={rowHandlers.onToggleSelect}
-                        onMore={rowHandlers.onMore}
-                      />
-                    ))}
-                    {tableItems.length > renderLimit && (
-                      <tr>
-                        <td colSpan={5} style={{ textAlign: "center", padding: "12px" }}>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => setRenderLimit((prev) => prev + 200)}
-                          >
-                            Show more ({tableItems.length - renderLimit} remaining)
-                          </button>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              )}
-              {searchMode && searchNextToken && !tableLoading && (
-                <div className="search-load-more">
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={searchLoading}
-                    onClick={() =>
-                      void runSearch({
-                        q: searchActiveQuery,
-                        scope: searchScope,
-                        pageToken: searchNextToken,
-                        append: true,
-                      })
-                    }
-                  >
-                    Load more
-                  </button>
-                </div>
-              )}
-              {!searchMode && listNextToken && !tableLoading && (
-                <div className="search-load-more">
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={listLoadingMore}
-                    onClick={() => void loadMoreFiles()}
-                  >
-                    {listLoadingMore ? "Loading…" : "Load more"}
-                  </button>
-                </div>
-              )}
-              <div
-                className={`empty${!tableLoading && tableItems.length === 0 && !tableError ? " is-on" : ""}`}
-                id="empty-state"
-              >
-                {searchMode ? (
-                  <>
-                    <strong>No matches</strong>
-                    <span>Try another name or switch scope (Folder / Drive).</span>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ marginTop: 12 }}
-                      onClick={() => {
-                        exitSearchMode();
-                        void loadFiles(folderId);
-                      }}
-                    >
-                      Back to folder
-                    </button>
-                  </>
-                ) : (
-                  <>
-                <strong>This folder is empty</strong>
-                <span>Upload a backup or create a folder.</span>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ marginTop: 12 }}
-                  disabled={busy}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Upload
-                </button>
-                  </>
-                )}
-              </div>
-              </div>
-                );
-              })()}
-            </div>
-            </>
+            <FilesPage
+              dropOn={dropOn}
+              sortedItems={sortedItems}
+              sortedSearchResults={sortedSearchResults}
+              searchMode={searchMode}
+              searchError={searchError}
+              listError={listError}
+              searchLoading={searchLoading}
+              listLoading={listLoading}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              toggleSort={toggleSort}
+              selectedId={selectedId}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              toggleSelectAllVisible={toggleSelectAllVisible}
+              doBulkDownload={doBulkDownload}
+              doBulkZip={doBulkZip}
+              doBulkTrash={doBulkTrash}
+              setCtxMenu={setCtxMenu}
+              renderLimit={renderLimit}
+              setRenderLimit={setRenderLimit}
+              dragItemId={dragItemId}
+              dragOverFolder={dragOverFolder}
+              rowHandlers={rowHandlers}
+              searchNextToken={searchNextToken}
+              runSearch={runSearch}
+              searchActiveQuery={searchActiveQuery}
+              searchScope={searchScope}
+              listNextToken={listNextToken}
+              listLoadingMore={listLoadingMore}
+              loadMoreFiles={loadMoreFiles}
+              busy={busy}
+              fileInputRef={fileInputRef}
+              exitSearchMode={exitSearchMode}
+              loadFiles={loadFiles}
+              folderId={folderId}
+            />
             )}
           </main>
 
@@ -3099,11 +2630,7 @@ void loadFiles(folderId);
       )}
 
       <ToastHost toasts={toasts} onDismiss={dismissToast} />
-      <UploadToastHost
-        jobs={jobs}
-        onCancel={(job) => void cancelJob(job as UploadJob)}
-        onDismiss={dismissUploadJob}
-      />
+      <UploadToastHost />
 
 {shortcutHelpOpen && (
   <Suspense fallback={null}>

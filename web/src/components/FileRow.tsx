@@ -6,10 +6,21 @@ import { IconMore } from "../lib/icons";
 
 // Touch devices don't reliably fire dblclick, so on coarse pointers a single tap
 // opens the row (matching native file apps). Desktop keeps double-click to open.
-const isCoarsePointer = () =>
-  typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia("(pointer: coarse)").matches;
+// Cached at module level — matchMedia on every row render is wasteful.
+let coarsePointerCached: boolean | null = null;
+const isCoarsePointer = () => {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  if (coarsePointerCached == null) {
+    const mql = window.matchMedia("(pointer: coarse)");
+    coarsePointerCached = mql.matches;
+    const sync = () => {
+      coarsePointerCached = mql.matches;
+    };
+    if (typeof mql.addEventListener === "function") mql.addEventListener("change", sync);
+    else if (typeof mql.addListener === "function") mql.addListener(sync);
+  }
+  return coarsePointerCached;
+};
 
 // click is a PointerEvent in modern browsers (dblclick is NOT — it stays a
 // plain MouseEvent), so the actual input type is read per gesture when present

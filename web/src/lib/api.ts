@@ -520,16 +520,28 @@ function parseApiErrorFromXhr(xhr: XMLHttpRequest, fallbackCode: string): ApiErr
   return new ApiError(xhr.status, code, message);
 }
 
+/** Chunk progress: client = browser→server, drive = server→Google (may be slow). */
+export type ChunkProgressPhase = "client" | "drive";
+
 /**
  * PUT one upload chunk via XHR so upload progress events fire continuously
  * (fetch has no upload progress API).
+ *
+ * After the browser finishes sending the body, the Go server still uploads to
+ * Drive — that phase can take a long time. We poll job status so the bar keeps
+ * reflecting real BytesSent instead of freezing on a fake estimate.
  */
 export async function putUploadChunk(
   uploadId: string,
   chunk: Blob | ArrayBuffer,
   offset: number,
   total: number,
-  onChunkProgress?: (loaded: number, chunkSize: number) => void,
+  onChunkProgress?: (
+    loaded: number,
+    chunkSize: number,
+    phase: ChunkProgressPhase,
+    absoluteBytes?: number,
+  ) => void,
   signal?: AbortSignal,
 ): Promise<UploadJob> {
   const body = chunk instanceof Blob ? chunk : new Blob([chunk]);
@@ -552,41 +564,44 @@ export async function putUploadChunk(
     const onAbort = () => xhr.abort();
     signal?.addEventListener("abort", onAbort);
 
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollInflight = false;
+
     const cleanup = () => {
       signal?.removeEventListener("abort", onAbort);
-      if (estTimer) clearInterval(estTimer);
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
     };
-
-    // Progress is split into two phases:
-    // Phase 1 (0–50%): browser → Go server (fast on localhost)
-    // Phase 2 (50–95%): estimated while Go server → Google Drive (slow)
-    // Final 100%: when server responds with confirmation
-    let estTimer: ReturnType<typeof setInterval> | null = null;
-    let estLoaded = 0;
 
     xhr.upload.onprogress = (ev) => {
       if (!onChunkProgress) return;
+      // Real browser→server bytes (not a 0–50% fake scale).
       const loaded = ev.lengthComputable ? ev.loaded : 0;
-      // Phase 1: scale browser→server bytes to 0–50% of perceived progress
-      const phase1 = Math.min(loaded / chunkSize, 1) * chunkSize * 0.5;
-      estLoaded = phase1;
-      onChunkProgress(Math.round(phase1), chunkSize);
+      onChunkProgress(Math.min(loaded, chunkSize), chunkSize, "client");
     };
 
     xhr.upload.onload = () => {
       if (!onChunkProgress) return;
-      // All data sent to server — now server is uploading to Drive.
-      // Start at 50% and smoothly approach 95%.
-      estLoaded = chunkSize * 0.5;
-      onChunkProgress(Math.round(estLoaded), chunkSize);
-      estTimer = setInterval(() => {
-        const target = chunkSize * 0.95;
-        const gap = target - estLoaded;
-        if (gap <= 0) return;
-        estLoaded += Math.max(1, gap * 0.04); // 4% of remaining gap per 100ms
-        estLoaded = Math.min(estLoaded, target);
-        onChunkProgress(Math.round(estLoaded), chunkSize);
-      }, 100);
+      // Client transfer done; server is now flushing this range to Drive.
+      onChunkProgress(chunkSize, chunkSize, "drive", offset);
+      // Poll absolute server progress so the bar does not freeze for minutes.
+      pollTimer = setInterval(() => {
+        if (pollInflight || signal?.aborted) return;
+        pollInflight = true;
+        void getUploadStatus(uploadId)
+          .then((st) => {
+            const abs = Math.max(st.bytesSent ?? 0, st.bytesReceived ?? 0, offset);
+            onChunkProgress?.(chunkSize, chunkSize, "drive", abs);
+          })
+          .catch(() => {
+            /* ignore transient status errors during flush */
+          })
+          .finally(() => {
+            pollInflight = false;
+          });
+      }, 700);
     };
 
     xhr.onload = () => {
@@ -665,9 +680,37 @@ export async function uploadFile(
   let offset = 0;
   let current: UploadJob = job;
   let lastUi = 0;
+  // Never let the bar jump backwards (pipeline races / mixed client+drive reports).
+  let hiWater = 0;
   let totalRetries = 0;
   const MAX_RETRIES = 5; // total retry budget per upload
   let usePipeline = true; // disable after first failure
+
+  const report = (bytes: number, status: string) => {
+    const n = Math.max(0, Math.min(file.size, Math.max(hiWater, bytes)));
+    hiWater = n;
+    opts.onProgress?.(n, file.size, status);
+  };
+
+  const onChunkUi = (
+    base: number,
+    loaded: number,
+    cs: number,
+    phase: ChunkProgressPhase,
+    absoluteBytes?: number,
+  ) => {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    // Always push phase changes / absolute Drive polls; throttle only fine client ticks.
+    if (phase === "client" && loaded < cs && now - lastUi < 80) return;
+    lastUi = now;
+    if (phase === "drive") {
+      // Prefer server-confirmed absolute bytes when available.
+      const abs = absoluteBytes != null ? absoluteBytes : base + loaded;
+      report(abs, "flushing");
+      return;
+    }
+    report(base + loaded, "uploading");
+  };
 
   while (offset < file.size) {
     if (opts.signal?.aborted) {
@@ -685,13 +728,14 @@ export async function uploadFile(
           const end = Math.min(offset + chunkSize, file.size);
           const base = offset;
           inflight.push(
-            putUploadChunk(job.uploadId, file.slice(offset, end), offset, file.size,
-              (loaded, cs) => {
-                const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-                if (loaded < cs && now - lastUi < 80) return;
-                lastUi = now;
-                opts.onProgress?.(Math.min(base + loaded, file.size), file.size, "uploading");
-              }, opts.signal),
+            putUploadChunk(
+              job.uploadId,
+              file.slice(offset, end),
+              offset,
+              file.size,
+              (loaded, cs, phase, abs) => onChunkUi(base, loaded, cs, phase, abs),
+              opts.signal,
+            ),
           );
           inflightMeta.push({ base, end });
           offset = end;
@@ -702,7 +746,11 @@ export async function uploadFile(
           current = await inflight.shift()!;
           const meta = inflightMeta.shift()!;
           lastUi = 0;
-          opts.onProgress?.(current.bytesReceived ?? meta.end, file.size, current.status);
+          const confirmed = current.bytesSent ?? current.bytesReceived ?? meta.end;
+          report(
+            confirmed,
+            current.status === "uploading" ? "uploading" : current.status,
+          );
           if (current.status === "completed" || current.status === "failed" || current.status === "cancelled") {
             await Promise.allSettled(inflight);
             if (current.status === "completed") return current;
@@ -714,16 +762,18 @@ export async function uploadFile(
         const end = Math.min(offset + chunkSize, file.size);
         const base = offset;
         current = await putUploadChunk(
-          job.uploadId, file.slice(offset, end), offset, file.size,
-          (loaded, cs) => {
-            const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-            if (loaded < cs && now - lastUi < 80) return;
-            lastUi = now;
-            opts.onProgress?.(Math.min(base + loaded, file.size), file.size, "uploading");
-          }, opts.signal,
+          job.uploadId,
+          file.slice(offset, end),
+          offset,
+          file.size,
+          (loaded, cs, phase, abs) => onChunkUi(base, loaded, cs, phase, abs),
+          opts.signal,
         );
         lastUi = 0;
-        opts.onProgress?.(current.bytesReceived ?? end, file.size, current.status);
+        report(
+          current.bytesSent ?? current.bytesReceived ?? end,
+          current.status === "uploading" ? "uploading" : current.status,
+        );
         if (current.status === "completed") return current;
         if (current.status === "failed" || current.status === "cancelled") {
           throw new ApiError(400, "chunk_failed", current.error || "chunk failed");
@@ -753,15 +803,16 @@ export async function uploadFile(
       try {
         const status = await getUploadStatus(job.uploadId);
         if (status.status === "completed") {
-          opts.onProgress?.(file.size, file.size, "completed");
+          report(file.size, "completed");
           return status;
         }
         if (status.status === "failed" || status.status === "cancelled") {
           throw new ApiError(400, "upload_failed", status.error || "upload failed on server");
         }
         // Resume from server-confirmed offset
-        offset = status.bytesReceived ?? 0;
-        opts.onProgress?.(offset, file.size, "uploading");
+        offset = status.bytesReceived ?? status.bytesSent ?? 0;
+        hiWater = offset; // reset monotonic floor to the resume point
+        report(offset, "uploading");
       } catch (statusErr) {
         // If status query also fails, re-throw original error
         if (statusErr instanceof ApiError && (statusErr.code === "upload_failed" || statusErr.code === "upload_aborted")) {
@@ -778,7 +829,7 @@ export async function uploadFile(
     try {
       const final = await getUploadStatus(job.uploadId);
       if (final.status === "completed") {
-        opts.onProgress?.(file.size, file.size, "completed");
+        report(file.size, "completed");
         return final;
       }
       return final;
@@ -885,50 +936,6 @@ export async function fetchFileRange(id: string, bytes: number): Promise<Blob> {
   return res.blob();
 }
 
-// ---- D2: Parallel Range download ----
-
-/**
- * Downloads a large file using multiple parallel Range requests (D2).
- * Splits the file into `streams` chunks, fetches them concurrently,
- * and assembles them in order. Passes meta hint to avoid redundant
- * server-side GetMeta round-trips (saves 1 RTT per stream).
- */
-export async function parallelDownloadFile(
-  id: string,
-  size: number,
-  onProgress?: (received: number, total: number) => void,
-  streams = 4,
-  meta?: Pick<FileItem, "name" | "mimeType" | "size" | "md5Checksum" | "version">,
-): Promise<Blob> {
-  if (size <= 0 || streams <= 1) {
-    // Fallback to simple download
-    const res = await fetch(fileDownloadUrl(id, meta), { credentials: "include" });
-    if (!res.ok) throw await parseError(res, "download");
-    return res.blob();
-  }
-
-  const chunkSize = Math.ceil(size / streams);
-  const parts: ArrayBuffer[] = new Array(streams);
-  let received = 0;
-
-  const fetchChunk = async (index: number): Promise<void> => {
-    const start = index * chunkSize;
-    const end = Math.min(start + chunkSize - 1, size - 1);
-    const res = await fetch(fileDownloadUrl(id, meta), {
-      headers: { Range: `bytes=${start}-${end}` },
-      credentials: "include",
-    });
-    if (!res.ok && res.status !== 206) throw await parseError(res, "parallel_download");
-    const buf = await res.arrayBuffer();
-    parts[index] = buf;
-    received += buf.byteLength;
-    onProgress?.(received, size);
-  };
-
-  await Promise.all(Array.from({ length: streams }, (_, i) => fetchChunk(i)));
-  return new Blob(parts, { type: "application/octet-stream" });
-}
-
 // ---- L2: Batch operations ----
 
 export type BatchResult = {
@@ -973,6 +980,41 @@ export async function downloadMultiZip(items: { id: string; name: string }[]): P
     body: JSON.stringify({ items }),
   });
   if (!res.ok) throw await parseError(res, "multi_zip");
+
+  // Preferred path: stream the ZIP straight to disk via the File System Access
+  // API so the whole archive is never buffered in memory (matters for large
+  // multi-file selections). Chromium-only + secure-context; falls back below.
+  const body = res.body;
+  const picker = (
+    window as unknown as {
+      showSaveFilePicker?: (opts?: {
+        suggestedName?: string;
+        types?: { description?: string; accept: Record<string, string[]> }[];
+      }) => Promise<{ createWritable: () => Promise<WritableStream<Uint8Array>> }>;
+    }
+  ).showSaveFilePicker;
+  if (picker && body) {
+    let handle: { createWritable: () => Promise<WritableStream<Uint8Array>> } | undefined;
+    try {
+      handle = await picker({
+        suggestedName: "selected-files.zip",
+        types: [{ description: "ZIP archive", accept: { "application/zip": [".zip"] } }],
+      });
+    } catch (err) {
+      // User dismissed the save dialog → nothing to do.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      // Picker failed before the body was touched → fall back to the blob path.
+      handle = undefined;
+    }
+    if (handle) {
+      // From here the response body is consumed; no blob fallback is possible.
+      const writable = await handle.createWritable();
+      await body.pipeTo(writable);
+      return;
+    }
+  }
+
+  // Fallback: buffer to a blob and trigger an anchor download.
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -981,7 +1023,9 @@ export async function downloadMultiZip(items: { id: string; name: string }[]): P
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Delay revoke — some browsers abort the download if the blob URL is
+  // revoked synchronously after click(), before the navigation starts.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 // ---- API keys (/api/v1/keys, session-only management) ----

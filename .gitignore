@@ -36,6 +36,7 @@ server.exe
 server.err.log
 tmp-*
 *.pid
+.dev-pids
 *.out
 *.err
 tsconfig.tsbuildinfo

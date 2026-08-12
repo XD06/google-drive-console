@@ -13,12 +13,16 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((prev:
   ref.current = state;
 
   const set = useCallback((v: T | ((prev: T) => T)) => {
-    setState((prev) => {
-      const next = typeof v === "function" ? (v as (p: T) => T)(prev) : v;
-      try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, [key]);
+    setState((prev) => (typeof v === "function" ? (v as (p: T) => T)(prev) : v));
+  }, []);
+
+  // Persist outside the state updater — setState updaters must be pure
+  // (StrictMode double-invokes them in dev, which would double-write).
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+    } catch { /* ignore quota / private mode */ }
+  }, [key, state]);
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {

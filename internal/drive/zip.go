@@ -12,9 +12,29 @@ import (
 	"strings"
 )
 
+// Zip walk limits — Drive folders can have multiple parents / shortcuts, so
+// recursion needs a visited set plus hard caps to avoid infinite walks and
+// multi-GB in-memory inventories before streaming starts.
+const (
+	maxZipDepth = 20
+	maxZipFiles = 5000
+)
+
 // ListFolderRecursive returns all non-trashed descendants of folderID.
 // Used for zip streaming.
 func (c *Client) listFolderRecursive(ctx context.Context, folderID string) ([]FileItem, error) {
+	return c.listFolderRecursiveLimited(ctx, folderID, 0, map[string]bool{})
+}
+
+func (c *Client) listFolderRecursiveLimited(ctx context.Context, folderID string, depth int, visited map[string]bool) ([]FileItem, error) {
+	if depth > maxZipDepth {
+		return nil, fmt.Errorf("zip: folder tree deeper than %d levels", maxZipDepth)
+	}
+	if visited[folderID] {
+		return nil, nil // cycle / multi-parent revisit — skip quietly
+	}
+	visited[folderID] = true
+
 	var all []FileItem
 	pageToken := ""
 	for {
@@ -81,14 +101,19 @@ func (c *Client) listFolderRecursive(ctx context.Context, folderID string) ([]Fi
 	// Recurse into subfolders
 	var result []FileItem
 	for _, item := range all {
+		if len(result) >= maxZipFiles {
+			return nil, fmt.Errorf("zip: tree exceeds %d items", maxZipFiles)
+		}
 		if item.IsFolder {
-			children, err := c.listFolderRecursive(ctx, item.ID)
+			children, err := c.listFolderRecursiveLimited(ctx, item.ID, depth+1, visited)
 			if err != nil {
-				result = append(result, item)
-				continue
+				return nil, err
 			}
 			result = append(result, item)
 			for _, ch := range children {
+				if len(result) >= maxZipFiles {
+					return nil, fmt.Errorf("zip: tree exceeds %d items", maxZipFiles)
+				}
 				ch.Name = item.Name + "/" + ch.Name
 				result = append(result, ch)
 			}

@@ -229,9 +229,11 @@ html[data-theme="light"] {
 .type-chip {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 10px; border-radius: 12px;
-  background: var(--surface-2); color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  color: var(--text);
   font-size: 0.75rem; cursor: pointer;
-  border: 1px solid transparent;
+  border: 1px solid var(--glass-stroke, var(--border));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   transition: all 120ms;
   white-space: nowrap;
 }
@@ -796,22 +798,165 @@ html[data-theme="dark"] body::after {
   --glass-frost: saturate(200%) blur(34px);
 }
 
-/* ---- Frosted sticky table header (Finder-style) ---- */
+/* ---- Table header outside the scroller ----
+   The header table lives in .thead-wrap ABOVE .table-wrap, so rows
+   clip at the scroller's top edge instead of sliding under the
+   labels. No fill, no frost band: the header area is simply the
+   panel background — fully transparent — and stays legible because
+   nothing can ever pass behind it. Both wrappers reserve a stable
+   scrollbar gutter so the two tables' columns line up exactly. */
 .file-table th {
-  background: color-mix(in srgb, var(--surface) 52%, transparent);
-  backdrop-filter: saturate(180%) blur(18px);
-  -webkit-backdrop-filter: saturate(180%) blur(18px);
-  border-bottom-color: var(--glass-stroke);
+  background: transparent;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--text) 62%, var(--muted));
+  border-bottom-color: color-mix(in srgb, var(--text) 16%, transparent);
+  position: static;
 }
-
-/* ---- Row hover / selection pick up a whisper of accent ---- */
-@media (hover: hover) and (pointer: fine) {
-  .file-table tbody tr:hover {
-    background: color-mix(in srgb, var(--accent) 5%, transparent);
+.table-wrap,
+.thead-wrap {
+  scrollbar-gutter: stable;
+}
+.thead-wrap {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+/* Separators start after the checkbox gutter (Apple list style) */
+.file-table td.col-check {
+  border-bottom-color: transparent;
+}
+@media (min-width: 901px) {
+  /* The list runs edge-to-edge inside the workspace card: the old
+     14px side padding on .main-row left the header divider and row
+     separators floating short of the glass edges. */
+  .main-row {
+    padding: 0;
   }
 }
-.file-table tbody tr.is-selected {
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
+@media (max-width: 900px) {
+  /* Mobile hides the header row entirely */
+  .thead-wrap {
+    display: none;
+  }
+}
+
+/* ---- File list harmony pass ----
+   The edge-to-edge hover bands, hard full-width separators, mono
+   dates and always-on checkbox grid read like a data table stuck onto
+   the glass panel. Desktop rows now highlight as rounded inset pills
+   (Finder-style), separators soften, numeric cells use the UI font,
+   and checkboxes stay quiet until pointed at or in use. */
+.file-table .num {
+  font-family: var(--font);
+  letter-spacing: -0.01em;
+}
+
+@media (min-width: 901px) {
+  /* Separate borders let cell corners round; it also keeps the sticky
+     header hairline attached while scrolling (collapse detaches it). */
+  .file-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .file-table td {
+    border-bottom-color: color-mix(in srgb, var(--border) 72%, transparent);
+  }
+  .file-table td.col-check {
+    border-bottom-color: transparent;
+  }
+  /* Size / date / actions hug the right edge; the name column takes
+     everything else, so dashes and dates stop floating mid-panel. */
+  .file-table th:nth-child(2),
+  .file-table td:nth-child(2) {
+    width: auto;
+  }
+  .file-table th:nth-child(3),
+  .file-table td:nth-child(3) {
+    width: 110px;
+  }
+  .file-table th:nth-child(4),
+  .file-table td:nth-child(4) {
+    width: 210px;
+  }
+  .file-table th:nth-child(5),
+  .file-table td:nth-child(5) {
+    width: 64px;
+  }
+  .file-table tbody tr[data-id] > td:first-child {
+    border-radius: 10px 0 0 10px;
+  }
+  .file-table tbody tr[data-id] > td:last-child {
+    border-radius: 0 10px 10px 0;
+  }
+  /* Highlights live on the cells so the radius clips them; the tr
+     itself stays transparent (kills the old square band). */
+  .file-table tbody tr:hover,
+  .file-table tbody tr.is-selected {
+    background: transparent;
+  }
+  .file-table tbody tr[data-id].is-selected > td {
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+  .file-table tbody tr[data-id].drop-target > td {
+    background: var(--accent-soft);
+  }
+}
+@media (min-width: 901px) and (hover: hover) and (pointer: fine) {
+  .file-table tbody tr[data-id]:hover:not(.is-selected) > td {
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+  }
+  /* The checkbox column collapses — the dead gutter is gone, so icons
+     and names align with the toolbar above. The checkbox instead fades
+     in OVER the file icon (Gmail-style swap) on hover / focus / while
+     a selection is active. */
+  .file-table th.col-check,
+  .file-table td.col-check {
+    width: 0;
+    padding: 0;
+    position: relative;
+  }
+  .file-table .row-check {
+    position: absolute;
+    left: 23px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    z-index: 1;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms var(--ease-out);
+  }
+  .file-table thead:hover .row-check,
+  .file-table tbody tr:hover .row-check,
+  .file-table tr:focus-within .row-check,
+  .file-table .row-check:checked,
+  .file-table .row-check:focus-visible,
+  .file-table:has(.row-check:checked) .row-check {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* icon yields while its checkbox is shown */
+  .name-cell .icon-box {
+    transition: opacity 140ms var(--ease-out);
+  }
+  .file-table tbody tr[data-id]:hover .icon-box,
+  .file-table tbody tr[data-id].is-selected .icon-box,
+  .file-table:has(.row-check:checked) tbody tr[data-id] .icon-box {
+    opacity: 0.25;
+  }
+  /* Header labels line up with the file NAMES (icon gutter is where
+     the select-all overlay lives). */
+  .file-table th:nth-child(2) {
+    padding-left: 58px;
+  }
+  /* With the check column at zero width, the hover pill's left corners
+     move to the name cell. */
+  .file-table tbody tr[data-id] > td:first-child {
+    border-radius: 0;
+  }
+  .file-table tbody tr[data-id] > td:nth-child(2) {
+    border-radius: 10px 0 0 10px;
+  }
 }
 
 /* ---- Primary button: Apple gradient pill with layered glow ---- */
@@ -1391,17 +1536,17 @@ html:not([data-wallpaper="minimal"]) {
    glass card with a generous frame of sharp wallpaper around it, and
    the blur stays moderate so shapes remain readable through the glass. */
 html[data-theme="light"][data-wallpaper="photo"] {
-  --sidebar-fill: rgba(255, 255, 255, 0.22);
-  --workspace-fill: rgba(255, 255, 255, 0.44);
-  --blur: saturate(140%) blur(24px);
+  --sidebar-fill: rgba(255, 255, 255, 0.5);
+  --workspace-fill: rgba(255, 255, 255, 0.62);
+  --blur: saturate(130%) blur(30px);
 }
 html[data-theme="dark"][data-wallpaper="photo"] {
-  --sidebar-fill: rgba(18, 20, 28, 0.34);
-  --workspace-fill: rgba(14, 16, 24, 0.46);
-  --blur: saturate(135%) blur(26px);
+  --sidebar-fill: rgba(20, 22, 30, 0.56);
+  --workspace-fill: rgba(16, 18, 26, 0.64);
+  --blur: saturate(125%) blur(32px);
 }
 html[data-wallpaper="photo"] {
-  --glass-frost: saturate(150%) blur(22px);
+  --glass-frost: saturate(140%) blur(26px);
 }
 @media (min-width: 901px) {
   html[data-wallpaper="photo"] .shell {
@@ -1531,16 +1676,10 @@ html[data-wallpaper="photo"] {
 /* ---- V2 fallbacks, mirroring the base glass layer ---- */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .settings-sheet { background: var(--surface); }
-  .file-table th { background: var(--surface-head); }
 }
 @media (prefers-reduced-transparency: reduce) {
   .settings-sheet {
     background: var(--surface);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  .file-table th {
-    background: var(--surface-head);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
