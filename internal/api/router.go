@@ -8,15 +8,17 @@ import (
 	"github.com/dsk/drive-backup-console/internal/apikey"
 	"github.com/dsk/drive-backup-console/internal/auth"
 	"github.com/dsk/drive-backup-console/internal/config"
+	"github.com/dsk/drive-backup-console/internal/download"
 	"github.com/dsk/drive-backup-console/internal/upload"
 )
 
 // Deps holds optional services wired by main.
 type Deps struct {
-	Config  config.Config
-	Auth    *auth.Service
-	Uploads *upload.Service // Store required; Drive may be filled per-request
-	Keys    *apikey.Store   // programmatic API keys for /api/v1 (nil disables key auth)
+	Config   config.Config
+	Auth     *auth.Service
+	Uploads  *upload.Service            // Store required; Drive may be filled per-request
+	Keys     *apikey.Store              // programmatic API keys for /api/v1 (nil disables key auth)
+	Downloads *download.PersistentStore // nil disables download feature
 }
 
 // NewRouter wires HTTP routes.
@@ -71,6 +73,29 @@ func NewRouter(d Deps) http.Handler {
 	oh := &OverviewHandlers{Auth: d.Auth}
 	mux.Handle("GET /api/overview", RequireSession(d.Auth, http.HandlerFunc(oh.Get)))
 
+	// Downloads (yt-dlp → Google Drive)
+	if d.Downloads != nil {
+		dh := &DownloadHandlers{
+			Auth:          d.Auth,
+			Store:         d.Downloads,
+			YtDlp: download.YtDlpConfig{
+				BinPath:    d.Config.YtDlpPath,
+				Proxy:       d.Config.DownloadProxy,
+				CookiePath: d.Config.DownloadCookiePath,
+				TmpDir:      d.Config.DownloadTmpDir,
+			},
+			DefaultFolder: d.Config.RootFolderID,
+		}
+
+		mux.Handle("POST /api/downloads", RequireSession(d.Auth, http.HandlerFunc(dh.Create)))
+		mux.Handle("GET /api/downloads", RequireSession(d.Auth, http.HandlerFunc(dh.List)))
+		mux.Handle("DELETE /api/downloads", RequireSession(d.Auth, http.HandlerFunc(dh.ClearFinished)))
+		mux.Handle("GET /api/downloads/{id}", RequireSession(d.Auth, http.HandlerFunc(dh.Status)))
+		mux.Handle("POST /api/downloads/{id}/cancel", RequireSession(d.Auth, http.HandlerFunc(dh.Cancel)))
+		mux.Handle("POST /api/downloads/{id}/retry-upload", RequireSession(d.Auth, http.HandlerFunc(dh.RetryUpload)))
+		mux.Handle("DELETE /api/downloads/{id}", RequireSession(d.Auth, http.HandlerFunc(dh.Delete)))
+	}
+
 	// --- /api/v1: programmatic API for AI agents / scripts --------------------
 	// Reuses the same handlers as the UI API, but authenticated by cookie OR API
 	// key and gated by scope. This namespace is the stable external contract.
@@ -121,6 +146,28 @@ func NewRouter(d Deps) http.Handler {
 
 	// Overview.
 	mux.Handle("GET /api/v1/overview", guard(rd, http.HandlerFunc(oh.Get)))
+
+	// Downloads (programmatic API).
+	if d.Downloads != nil {
+		dh := &DownloadHandlers{
+			Auth:          d.Auth,
+			Store:         d.Downloads,
+			YtDlp: download.YtDlpConfig{
+				BinPath:    d.Config.YtDlpPath,
+				Proxy:       d.Config.DownloadProxy,
+				CookiePath: d.Config.DownloadCookiePath,
+				TmpDir:      d.Config.DownloadTmpDir,
+			},
+			DefaultFolder: d.Config.RootFolderID,
+		}
+		mux.Handle("POST /api/v1/downloads", guard(rw, http.HandlerFunc(dh.Create)))
+		mux.Handle("GET /api/v1/downloads", guard(rd, http.HandlerFunc(dh.List)))
+		mux.Handle("DELETE /api/v1/downloads", guard(rw, http.HandlerFunc(dh.ClearFinished)))
+		mux.Handle("GET /api/v1/downloads/{id}", guard(rd, http.HandlerFunc(dh.Status)))
+		mux.Handle("POST /api/v1/downloads/{id}/cancel", guard(rw, http.HandlerFunc(dh.Cancel)))
+		mux.Handle("POST /api/v1/downloads/{id}/retry-upload", guard(rw, http.HandlerFunc(dh.RetryUpload)))
+		mux.Handle("DELETE /api/v1/downloads/{id}", guard(rw, http.HandlerFunc(dh.Delete)))
+	}
 
 	return mux
 }
