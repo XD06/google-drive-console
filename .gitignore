@@ -28,7 +28,9 @@ Thumbs.db
 .playwright-cli/
 .superpowers/
 .workbuddy/
-
+# Cookie exports for yt-dlp (may contain session secrets)
+bilibili.com.json
+douyin.com.json
 # Misc build artifacts
 bench_*.txt
 pw-mock.js

@@ -36,6 +36,12 @@ type Config struct {
 	// assets and a client-routing fallback to index.html. Empty/missing → the
 	// minimal placeholder landing page is served instead.
 	WebDistDir string
+
+	// --- Download feature (yt-dlp) ---
+	YtDlpPath          string
+	DownloadProxy      string
+	DownloadCookiePath string
+	DownloadTmpDir     string
 }
 
 // Load reads configuration from environment variables.
@@ -54,6 +60,10 @@ func Load() (Config, error) {
 		DevMode:            envBool("DEV_MODE", false),
 		HTTPProxy:          strings.TrimSpace(os.Getenv("HTTP_PROXY")),
 		WebDistDir:         envString("WEB_DIST_DIR", "./web/dist"),
+		YtDlpPath:          envString("YTDLP_PATH", ""),
+		DownloadProxy:      envString("DOWNLOAD_PROXY", ""),
+		DownloadCookiePath: envString("DOWNLOAD_COOKIE_PATH", ""),
+		DownloadTmpDir:     envString("DOWNLOAD_TMP_DIR", ""),
 	}
 	cfg.SecureCookie = envBool("SECURE_COOKIE", !cfg.DevMode)
 	cfg.FrontendOrigin = normalizeFrontendOrigin(cfg.FrontendOrigin)
@@ -69,6 +79,10 @@ func Load() (Config, error) {
 		apiKeysPath = cfg.DataDir + string(os.PathSeparator) + "apikeys.json"
 	}
 	cfg.APIKeysPath = apiKeysPath
+
+	if cfg.DownloadTmpDir == "" {
+		cfg.DownloadTmpDir = cfg.DataDir + string(os.PathSeparator) + "downloads"
+	}
 
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return Config{}, fmt.Errorf("PORT must be between 1 and 65535, got %d", cfg.Port)
