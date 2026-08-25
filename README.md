@@ -31,6 +31,8 @@ Self-hosted web console for managing personal Google Drive — browse, upload, d
 - Go 1.23+
 - Node 20+ / npm 10+
 - Google Cloud project with OAuth 2.0 Web credentials
+- **yt-dlp** (for download feature) — [install](https://github.com/yt-dlp/yt-dlp#installation)
+- **ffmpeg** (for download feature — yt-dlp uses it for merging formats)
 - (Optional) Docker & Docker Compose for containerised deployment
 
 ## Quick Start
@@ -67,7 +69,43 @@ Optional:
 | `DOWNLOAD_COOKIE_PATH` | _(empty)_ | Netscape cookie file for auth-required sites |
 | `DOWNLOAD_TMP_DIR` | `DATA_DIR/downloads` | Temp directory for downloaded files |
 
-### 2. Run in development
+### 2. Install yt-dlp (for download feature)
+
+The download feature requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://ffmpeg.org/).
+
+**Windows (winget):**
+```bash
+winget install yt-dlp.yt-dlp
+winget install Gyan.FFmpeg
+```
+
+**macOS (Homebrew):**
+```bash
+brew install yt-dlp ffmpeg
+```
+
+**Linux (pip):**
+```bash
+pip install yt-dlp
+sudo apt install ffmpeg  # or: brew install ffmpeg
+```
+
+Find the binary path and set it in `.env`:
+```bash
+# Windows: typically C:\Users\<you>\AppData\Local\Programs\yt-dlp\yt-dlp.exe
+# macOS/Linux: /opt/homebrew/bin/yt-dlp or /usr/local/bin/yt-dlp or ~/.local/bin/yt-dlp
+which yt-dlp  # macOS/Linux
+where yt-dlp  # Windows
+```
+
+Set in `.env`:
+```env
+YTDLP_PATH=/path/to/yt-dlp
+```
+
+> **Docker users:** yt-dlp and ffmpeg are pre-installed in the Docker image. Skip this step.
+
+### 3. Run in development
 
 ```bash
 # Backend (terminal 1)
@@ -80,13 +118,13 @@ cd web && npm install && npm run dev
 - API: http://localhost:3000/api/health
 - SPA: http://localhost:5174 (proxies `/api` → `:3000`)
 
-### 3. Run with Docker
+### 4. Run with Docker
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-Open http://localhost:3000 — the Go server serves both API and SPA.
+Open http://localhost:3000 — the Go server serves both API and SPA, with yt-dlp and ffmpeg pre-installed.
 
 See `docs/docker.md` for full deployment guide.
 
@@ -139,18 +177,33 @@ cd web && npx tsc --noEmit
 
 The download feature uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to download media from YouTube, Bilibili, Douyin, direct links, and other supported sites, then automatically uploads the result to Google Drive.
 
-### Setup
+> **Docker:** yt-dlp + ffmpeg are pre-installed. Just `docker compose up --build` and the feature is ready.
+> **Local dev:** see the [Install yt-dlp](#2-install-yt-dlp-for-download-feature) step above.
 
-1. Install yt-dlp and note the binary path.
-2. Set `YTDLP_PATH` in `.env` to the binary path.
-3. For sites requiring authentication (e.g. Bilibili), export cookies from your browser using the Cookie Editor extension, then convert them:
+### Cookies (for auth-required sites)
+
+Sites like Bilibili and Douyin require authentication cookies. To set up:
+
+1. Install the [Cookie Editor](https://cookie-editor.com) browser extension.
+2. Navigate to the site and log in.
+3. Open Cookie Editor → Export → JSON format → save as `bilibili.com.json`.
+4. Convert to Netscape format:
 
 ```bash
+# Using the built-in converter tool
 go run ./cmd/cookieconvert bilibili.com.json > data/cookies.txt
+
+# Or inside Docker
+docker compose exec app /cookieconvert /tmp/bilibili.com.json > /data/cookies.txt
 ```
 
-4. Set `DOWNLOAD_COOKIE_PATH=./data/cookies.txt` in `.env`.
-5. For sites behind a proxy, set `DOWNLOAD_PROXY`.
+5. Set in `.env`:
+```env
+DOWNLOAD_COOKIE_PATH=./data/cookies.txt   # local dev
+# DOWNLOAD_COOKIE_PATH=/data/cookies.txt   # Docker
+```
+
+6. Restart the server.
 
 ### How it works
 
@@ -158,6 +211,7 @@ go run ./cmd/cookieconvert bilibili.com.json > data/cookies.txt
 - **Retry upload**: if upload fails but the download succeeded, retry only re-uploads — no re-download.
 - **Non-video files**: when yt-dlp returns `unknown_video` extension (common for direct links), the server infers the correct extension from the URL.
 - **Folder routing**: downloaded files go to `ROOT_FOLDER_ID` or a specified Drive folder. Virtual folder names (e.g. `Videos`) are auto-created.
+- **Proxy routing**: domestic sites (Bilibili, Douyin) automatically bypass the download proxy; foreign sites (YouTube) use `DOWNLOAD_PROXY` if set.
 - **Job persistence**: download jobs survive server restarts via `DATA_DIR/downloads.json`.
 - **Cleanup**: a background reaper removes terminal jobs older than 1 hour; temp files are deleted after upload.
 
