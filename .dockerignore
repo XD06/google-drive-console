@@ -6,10 +6,9 @@
 .superpowers
 .workbuddy
 data/
+docs/
 web/node_modules/
 web/dist/
-web/demo/
-web/demo-directions/
 *.exe
 *.log
 *.pid
@@ -22,3 +21,6 @@ server.exe
 server.err.log
 server.log
 tmp-*
+google-drive-server.exe
+*.md
+!README.md

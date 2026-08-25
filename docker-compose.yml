@@ -14,12 +14,14 @@ services:
       - PORT=3000
       - DATA_DIR=/data
       - WEB_DIST_DIR=/web/dist
+      - YTDLP_PATH=/usr/bin/yt-dlp
+      - DOWNLOAD_TMP_DIR=/data/downloads
       - DEV_MODE=0
       - SECURE_COOKIE=true
     volumes:
       - app-data:/data
     healthcheck:
-      test: ["CMD", "/server", "--health"]  # fallback: wget not available in distroless
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
