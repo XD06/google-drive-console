@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  IconDownload,
   IconDrive,
   IconFilePlus,
   IconFolderPlus,
@@ -9,10 +10,11 @@ import {
 } from "../lib/icons";
 
 export type MobileNavProps = {
-  view: "files" | "overview";
+  view: "files" | "overview" | "downloads";
   busy: boolean;
   onOpenFiles: () => void;
   onOpenOverview: () => void;
+  onOpenDownloads: () => void;
   onUpload: () => void;
   onNewFolder: () => void;
   onNewFile: () => void;
@@ -28,6 +30,7 @@ export function MobileNav({
   busy,
   onOpenFiles,
   onOpenOverview,
+  onOpenDownloads,
   onUpload,
   onNewFolder,
   onNewFile,
@@ -125,6 +128,17 @@ export function MobileNav({
             <IconDrive size={20} />
           </span>
           <span>Files</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item${view === "downloads" ? " is-active" : ""}`}
+          aria-current={view === "downloads" ? "page" : undefined}
+          onClick={onOpenDownloads}
+        >
+          <span className="bn-ico">
+            <IconDownload size={20} />
+          </span>
+          <span>Downloads</span>
         </button>
       </nav>
     </>

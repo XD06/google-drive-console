@@ -48,7 +48,7 @@ export class ApiError extends Error {
   }
 }
 
-async function parseError(res: Response, fallbackCode: string): Promise<ApiError> {
+export async function parseError(res: Response, fallbackCode: string): Promise<ApiError> {
   let code = fallbackCode;
   let message = `${fallbackCode} ${res.status}`;
   try {

@@ -1,5 +1,6 @@
 import {
   IconClock,
+  IconDownload,
   IconDrive,
   IconGrid,
   IconHelp,
@@ -13,13 +14,14 @@ import {
 export type RecentFolder = { id: string; name: string };
 
 export type SidebarProps = {
-  view: "files" | "overview";
+  view: "files" | "overview" | "downloads";
   email: string;
   avatar: string;
   busy: boolean;
   recentFolders: RecentFolder[];
   onOpenFiles: () => void;
   onOpenOverview: () => void;
+  onOpenDownloads: () => void;
   onOpenRecent: (id: string, name: string) => void;
   onLogout: () => void;
   // Mobile-only utilities (shown in the drawer on phones; hidden on desktop
@@ -41,6 +43,7 @@ export function Sidebar({
   recentFolders,
   onOpenFiles,
   onOpenOverview,
+  onOpenDownloads,
   onOpenRecent,
   onLogout,
   isDark,
@@ -79,6 +82,14 @@ export function Sidebar({
         >
           <IconGrid size={16} />
           Overview
+        </button>
+        <button
+          type="button"
+          className={`nav-item${view === "downloads" ? " is-active" : ""}`}
+          onClick={onOpenDownloads}
+        >
+          <IconDownload size={16} />
+          Downloads
         </button>
       </nav>
       {recentFolders.length > 0 && (

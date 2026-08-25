@@ -65,6 +65,10 @@ import {
   revalidateIfViewing,
   useFileList,
 } from "./lib/fileStore";
+import {
+  initDownloadStore,
+  resetDownloads,
+} from "./lib/downloadStore";
 import { fileKind, fileKindLabel, type FileKind } from "./lib/fileKind";
 import { FileTypeIcon, iconBoxClass } from "./lib/FileTypeIcon";
 import {
@@ -93,6 +97,7 @@ import {
   IconUpload,
 } from "./lib/icons";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DownloadPage } from "./components/DownloadPage";
 import { FilesPage } from "./components/FilesPage";
 import { MobileNav } from "./components/MobileNav";
 import { OverviewPage } from "./components/OverviewPage";
@@ -152,7 +157,7 @@ type NavState = {
   v: 1;
   folderId?: string;
   trail: { id: string; name: string }[];
-  view: "files" | "overview";
+  view: "files" | "overview" | "downloads";
 };
 const NAV_KEY = "dbc.nav";
 
@@ -204,7 +209,7 @@ export default function App() {
   const [prefs, setPrefs] = useLocalStorage("dbc.prefs", { banner: true, uploadToast: true, compact: false, autoDismiss: true });
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
   const { wallpaper, setWallpaper } = useWallpaper();
-  const [view, setView] = useState<"files" | "overview">("files");
+  const [view, setView] = useState<"files" | "overview" | "downloads">("files");
   const [navOpen, setNavOpen] = useState(false);
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -498,7 +503,7 @@ export default function App() {
     if (nav && (nav.folderId || nav.trail.length > 0)) {
       const fid = nav.folderId && nav.folderId !== "root" ? nav.folderId : undefined;
       hydrate({ folderId: fid, trail: nav.trail });
-      setView(nav.view === "overview" ? "overview" : "files");
+      setView(nav.view === "overview" ? "overview" : nav.view === "downloads" ? "downloads" : "files");
       void loadFiles(fid);
     } else {
       hydrate({ folderId: undefined, trail: [] });
@@ -531,6 +536,10 @@ export default function App() {
       onError: (msg) => fileSinkRef.current.showToast(msg, true),
       onUnauthorized: () => fileSinkRef.current.setAuth({ status: "signed_out" }),
       onFolderOpened: (id, name) => fileSinkRef.current.addRecentFolder(id, name),
+    });
+    initDownloadStore({
+      onError: (msg) => fileSinkRef.current.showToast(msg, true),
+      onUnauthorized: () => fileSinkRef.current.setAuth({ status: "signed_out" }),
     });
   }, []);
 
@@ -599,6 +608,7 @@ export default function App() {
       await logout(false);
       setAuth({ status: "signed_out" });
       resetOnLogout();
+      resetDownloads();
       clearNavState();
       showToast("Session ended", false, "Disconnected");
     } catch (e) {
@@ -1736,6 +1746,10 @@ void loadFiles(folderId);
           setView("overview");
           setNavOpen(false);
         }}
+        onOpenDownloads={() => {
+          setView("downloads");
+          setNavOpen(false);
+        }}
         onOpenRecent={openRecentFolder}
         onLogout={() => void onLogout()}
         isDark={themeMode === "dark"}
@@ -1995,7 +2009,7 @@ void loadFiles(folderId);
             </>
           )}
         </div>
-        ) : (
+        ) : view === "overview" ? (
         <div className="toolbar toolbar-overview" role="toolbar" aria-label="概览">
           <strong className="toolbar-title">Overview</strong>
           <div className="spacer" />
@@ -2008,6 +2022,11 @@ void loadFiles(folderId);
             <IconRefresh size={15} />
             Refresh
           </button>
+        </div>
+        ) : (
+        <div className="toolbar toolbar-overview" role="toolbar" aria-label="下载">
+          <strong className="toolbar-title">Downloads</strong>
+          <div className="spacer" />
         </div>
         )}
 
@@ -2038,6 +2057,8 @@ void loadFiles(folderId);
                 typeCounts={typeCounts}
                 typeTotal={typeTotal}
               />
+            ) : view === "downloads" ? (
+              <DownloadPage />
             ) : (
             <FilesPage
               dropOn={dropOn}
@@ -2089,11 +2110,13 @@ void loadFiles(folderId);
               : overviewError
                 ? "Overview error"
                 : "Overview"
-            : listLoading
-              ? "Loading…"
-              : selectedIds.size > 0
-                ? `${selectedIds.size} selected · ${formatBytes(sortedItems.filter((it) => selectedIds.has(it.id) && !it.isFolder).reduce((sum, it) => sum + (it.size ?? 0), 0))}`
-                : `${items.length} item${items.length === 1 ? "" : "s"}`}
+            : view === "downloads"
+              ? "Downloads"
+              : listLoading
+                ? "Loading…"
+                : selectedIds.size > 0
+                  ? `${selectedIds.size} selected · ${formatBytes(sortedItems.filter((it) => selectedIds.has(it.id) && !it.isFolder).reduce((sum, it) => sum + (it.size ?? 0), 0))}`
+                  : `${items.length} item${items.length === 1 ? "" : "s"}`}
         </footer>
       </div>
 
@@ -2106,6 +2129,7 @@ void loadFiles(folderId);
           goCrumb(-1);
         }}
         onOpenOverview={() => setView("overview")}
+        onOpenDownloads={() => setView("downloads")}
         onUpload={() => fileInputRef.current?.click()}
         onNewFolder={() => setMkdirOpen(true)}
         onNewFile={() =>
