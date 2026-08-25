@@ -176,6 +176,78 @@ Client strategy (SPA): ≤5 MB → `POST /api/files/simple`; 5–32 MB → singl
 
 ---
 
+## Downloads (yt-dlp → Google Drive)
+
+Downloads are powered by yt-dlp. The feature is auto-disabled when `YTDLP_PATH` is not set. Jobs are persisted to `DATA_DIR/downloads.json` and survive restarts.
+
+### `POST /api/downloads`
+
+Starts a new download job. The server resolves metadata via `yt-dlp --simulate`, downloads the media, then uploads it to Drive.
+
+```json
+{ "url": "https://www.youtube.com/watch?v=…", "parentFolderId": "optional-drive-folder-id-or-name" }
+```
+
+→ **201** `DownloadJob`
+
+```json
+{
+  "id": "dl_abc123",
+  "url": "https://…",
+  "title": "Video Title",
+  "status": "pending",
+  "progress": 0,
+  "speed": "",
+  "eta": "",
+  "downloaded": 0,
+  "total": 0,
+  "driveFileId": null,
+  "error": "",
+  "createdAt": "2026-08-25T10:00:00Z",
+  "updatedAt": "2026-08-25T10:00:00Z"
+}
+```
+
+Statuses: `pending` | `resolving` | `downloading` | `uploading` | `completed` | `failed` | `cancelled`.
+
+### `GET /api/downloads`
+
+Lists all download jobs (newest first). → **200** `{ "jobs": [DownloadJob, …] }`
+
+### `GET /api/downloads/{id}`
+
+Polls a single job status. → **200** `DownloadJob` (same shape as create response).
+
+### `POST /api/downloads/{id}/cancel`
+
+Cancels a running job (kills yt-dlp subprocess if active). → **200** `DownloadJob` with `status: "cancelled"`.
+
+### `POST /api/downloads/{id}/retry-upload`
+
+Re-attempts the upload phase for a job whose download completed but upload failed. Does **not** re-download — the local temp file must still exist. If the file was already cleaned up, returns a validation error suggesting full re-download. → **200** `DownloadJob`.
+
+### `DELETE /api/downloads/{id}`
+
+Deletes a single download job from the store. If the job is still running, it is cancelled first. Temp files are cleaned up. → **204**.
+
+### `DELETE /api/downloads`
+
+Clears all terminal (completed/failed/cancelled) jobs from the store. Temp files for those jobs are deleted. → **200** `{ "cleared": N }`.
+
+### Direct-link handling
+
+When yt-dlp cannot determine the file type (returns `ext: "unknown_video"`), the server:
+
+1. Infers the extension from the URL path via `guessExt()`.
+2. Uses the inferred extension directly in the output template (instead of `%(ext)s`) to prevent yt-dlp from creating `.unknown_video` files.
+3. Falls back to scanning the temp directory for the largest recently-modified file if the expected filename is not found.
+
+### `/api/v1/downloads/*`
+
+All download routes are mirrored under `/api/v1` for programmatic access, gated by API key scopes (`read` for list/status, `readwrite` for create/cancel/retry/delete).
+
+---
+
 ## Overview
 
 ### `GET /api/overview`

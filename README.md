@@ -10,6 +10,7 @@ Self-hosted web console for managing personal Google Drive — browse, upload, d
 - **Batch operations** — multi-select trash, move, ZIP download
 - **Media preview** — images (pinch-zoom), video, PDF, text editing
 - **Sharing & revisions** — generate share links, browse file history
+- **Media download** — yt-dlp powered: YouTube, Bilibili, direct links → auto-upload to Drive
 - **Overview dashboard** — storage usage, upload history, type breakdown
 - **Responsive** — works on desktop and mobile with touch-optimised UI
 - **Dark / Light / System** theme with Apple Liquid Glass design
@@ -61,6 +62,10 @@ Optional:
 | `ROOT_FOLDER_ID` | _(empty)_ | Limit browsing to a specific Drive folder |
 | `HTTP_PROXY` | _(empty)_ | Proxy for Google API calls (e.g. `socks5://...`) |
 | `WEB_DIST_DIR` | `./web/dist` | Path to built SPA assets |
+| `YTDLP_PATH` | _(empty)_ | Path to yt-dlp binary; enables download feature |
+| `DOWNLOAD_PROXY` | _(empty)_ | Proxy for yt-dlp (e.g. `socks5://127.0.0.1:10808`) |
+| `DOWNLOAD_COOKIE_PATH` | _(empty)_ | Netscape cookie file for auth-required sites |
+| `DOWNLOAD_TMP_DIR` | `DATA_DIR/downloads` | Temp directory for downloaded files |
 
 ### 2. Run in development
 
@@ -95,10 +100,14 @@ internal/
   auth/                  OAuth 2.0 + session management
   config/                Environment configuration
   drive/                 Google Drive API client
+  download/              yt-dlp download service & job store
   upload/                Resumable upload job store
 web/
   src/                   React SPA source
   dist/                  Production build output
+cmd/
+  server/                Server entrypoint
+  cookieconvert/         Cookie Editor JSON → Netscape format converter
 docs/                    Design docs, API contract, progress
 data/                    Runtime data (gitignored)
 ```
@@ -125,6 +134,32 @@ cd web && npx tsc --noEmit
 - [Docker Deployment](docs/docker.md)
 - [Development Workflow](docs/DEV_WORKFLOW.md)
 - [Progress Log](docs/progress.md)
+
+## Download Feature
+
+The download feature uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to download media from YouTube, Bilibili, Douyin, direct links, and other supported sites, then automatically uploads the result to Google Drive.
+
+### Setup
+
+1. Install yt-dlp and note the binary path.
+2. Set `YTDLP_PATH` in `.env` to the binary path.
+3. For sites requiring authentication (e.g. Bilibili), export cookies from your browser using the Cookie Editor extension, then convert them:
+
+```bash
+go run ./cmd/cookieconvert bilibili.com.json > data/cookies.txt
+```
+
+4. Set `DOWNLOAD_COOKIE_PATH=./data/cookies.txt` in `.env`.
+5. For sites behind a proxy, set `DOWNLOAD_PROXY`.
+
+### How it works
+
+- **Two-phase pipeline**: metadata resolution → download → upload to Drive (resumable for large files).
+- **Retry upload**: if upload fails but the download succeeded, retry only re-uploads — no re-download.
+- **Non-video files**: when yt-dlp returns `unknown_video` extension (common for direct links), the server infers the correct extension from the URL.
+- **Folder routing**: downloaded files go to `ROOT_FOLDER_ID` or a specified Drive folder. Virtual folder names (e.g. `Videos`) are auto-created.
+- **Job persistence**: download jobs survive server restarts via `DATA_DIR/downloads.json`.
+- **Cleanup**: a background reaper removes terminal jobs older than 1 hour; temp files are deleted after upload.
 
 ## License
 

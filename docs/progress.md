@@ -1,5 +1,59 @@
 # Progress Log
 
+## 2026-08-25 — Download feature (yt-dlp → Google Drive)
+
+**Status:** complete (go build pass; manual browser testing done)
+
+### Feature
+
+Full-stack download pipeline: paste a URL (YouTube, Bilibili, Douyin, direct links, etc.) → yt-dlp downloads → auto-upload to Google Drive. Integrated into the main SPA with consistent dark/glass theme.
+
+### Backend
+
+- `internal/download/` — complete yt-dlp service layer:
+  - `yt_dlp.go`: metadata resolution, download with progress parsing, output template management, multi-strategy file lookup (exact match → glob → directory scan)
+  - `service.go`: two-phase pipeline (download → upload), retry-upload (no re-download), folder auto-creation, `unknown_video` extension handling
+  - `persist.go`: job persistence to `downloads.json`, background reaper (10m tick, 1h maxAge)
+  - `store.go` / `job.go`: in-memory + persistent job store with mutex-protected state
+  - `proxy.go`: per-domain proxy routing (domestic sites bypass proxy)
+- `internal/api/download_handlers.go` — 7 REST handlers: create, list, status, cancel, retry-upload, delete, clear-finished
+- `internal/api/router.go` — routes wired into both `/api/downloads` (session) and `/api/v1/downloads` (API key)
+- `internal/config/config.go` — new env vars: `YTDLP_PATH`, `DOWNLOAD_PROXY`, `DOWNLOAD_COOKIE_PATH`, `DOWNLOAD_TMP_DIR`
+- `cmd/cookieconvert/` — utility to convert Cookie Editor JSON → Netscape format for yt-dlp
+
+### Frontend
+
+- `web/src/components/DownloadPage.tsx` — full download UI: hero input zone, job history list, progress bars, retry/cancel/delete actions
+- `web/src/lib/downloadStore.ts` — external store with optimistic UI (local delete + `deletedIds` set to prevent stale records on refresh)
+- `web/src/App.tsx` — integrated `downloads` view into nav, toolbar, and page routing
+- `web/src/components/Sidebar.tsx` / `MobileNav.tsx` — download nav item in sidebar and mobile bottom bar
+- `web/src/features.css` — download page styles matching global dark/glass theme
+- `web/src/lib/api.ts` — exported `parseError` for reuse by download store
+
+### Bug fixes during integration
+
+- **Grid collapse**: toolbar `null` caused `main-row` to collapse → render placeholder toolbar div
+- **405 Method Not Allowed**: stale server binary → recompile and restart
+- **File not found for direct links**: yt-dlp ignores `-o` template for direct links → added `scanDirForLargestMedia` fallback
+- **`unknown_video` extension**: yt-dlp returns this for non-video direct links → output template uses inferred extension instead of `%(ext)s`; `uploadToDrive` infers from URL; `findDownloadedFile` includes `unknown_video` in known extensions
+- **Upload failed (folder-books)**: virtual folder names not resolved → auto-create Drive folders by name
+- **Retry re-downloads**: retry was starting full pipeline → split `RetryUpload` to only re-upload using existing local file
+- **Records reappear after clear**: `refreshDownloads` overwrote local deletes → `deletedIds` Set filters stale records
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | pass |
+| `go test ./...` | pass |
+| Manual: YouTube download → Drive upload | pass |
+| Manual: Bilibili (with cookies) | pass |
+| Manual: direct link (non-video, `.unknown_video`) | pass |
+| Manual: retry-upload after simulated failure | pass |
+| Manual: delete/clear-finished | pass |
+
+---
+
 ## 2026-07-27 → 08-12 — Bug audit fixes + frontend store split
 
 **Status:** complete (unit/build green; browser E2E still manual) — ready to push
