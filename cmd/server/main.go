@@ -18,6 +18,7 @@ import (
 	"github.com/dsk/drive-backup-console/internal/apikey"
 	"github.com/dsk/drive-backup-console/internal/auth"
 	"github.com/dsk/drive-backup-console/internal/config"
+	"github.com/dsk/drive-backup-console/internal/download"
 	"github.com/dsk/drive-backup-console/internal/upload"
 )
 
@@ -71,11 +72,28 @@ func main() {
 
 	apiKeys := apikey.NewStore(cfg.APIKeysPath)
 
+	// Download store (only if yt-dlp is configured)
+	var downloadStore *download.PersistentStore
+	if cfg.YtDlpPath != "" {
+		if err := os.MkdirAll(cfg.DownloadTmpDir, 0o700); err != nil {
+			log.Fatalf("download tmp dir: %v", err)
+		}
+		downloadStore = download.NewPersistentStore(filepath.Join(cfg.DataDir, "downloads.json"))
+		downloadStore.StartReaper(10*time.Minute, time.Hour)
+		log.Printf("download feature enabled: yt-dlp=%s tmpDir=%s", cfg.YtDlpPath, cfg.DownloadTmpDir)
+		if cfg.DownloadProxy != "" {
+			log.Printf("download proxy: %s", cfg.DownloadProxy)
+		}
+	} else {
+		log.Printf("download feature disabled (set YTDLP_PATH to enable)")
+	}
+
 	handler := api.NewRouter(api.Deps{
-		Config:  cfg,
-		Auth:    authSvc,
-		Uploads: uploadSvc,
-		Keys:    apiKeys,
+		Config:    cfg,
+		Auth:      authSvc,
+		Uploads:   uploadSvc,
+		Keys:      apiKeys,
+		Downloads: downloadStore,
 	})
 
 	// Wrap with gzip compression (before logging, so compressed size is logged)
@@ -107,6 +125,9 @@ func main() {
 	<-ctx.Done()
 	log.Println("shutdown signal received, draining connections…")
 	uploadStore.StopReaper()
+	if downloadStore != nil {
+		downloadStore.StopReaper()
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -114,5 +135,8 @@ func main() {
 		log.Printf("graceful shutdown failed: %v", err)
 	}
 	uploadStore.SaveNow()
+	if downloadStore != nil {
+		downloadStore.SaveNow()
+	}
 	log.Println("server stopped")
 }
