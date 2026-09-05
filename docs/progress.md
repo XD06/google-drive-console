@@ -60,7 +60,7 @@ Full-stack download pipeline: paste a URL (YouTube, Bilibili, Douyin, direct lin
 
 ### Theme
 
-Full-stack bug audit (`BUG_AUDIT_2026-07-27.md`) + architecture notes (`docs/ARCHITECTURE_RECOMMENDATIONS_2026-07-27.md`), then ship the high-priority correctness/security fixes and start the App.tsx de-godification.
+Full-stack bug audit (`docs/archive/2026-07-27-BUG_AUDIT.md`) + architecture notes (`docs/archive/2026-07-27-ARCHITECTURE_RECOMMENDATIONS.md`), then ship the high-priority correctness/security fixes and start the App.tsx de-godification.
 
 ### Backend (security / correctness / durability)
 

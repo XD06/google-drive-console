@@ -12,7 +12,7 @@ Two auth modes:
 | Namespace | Auth | Audience |
 |-----------|------|----------|
 | `/api/*` | Session cookie `dbc_session` (HMAC-SHA256, set by OAuth callback) | Browser SPA |
-| `/api/v1/*` | Session cookie **or** API key `Authorization: Bearer dbk_…` | AI agents / scripts |
+| `/api/v1/*` | Session cookie **or** API key `Authorization: Bearer dbc_…` | AI agents / scripts |
 
 API keys carry a scope: `read` or `readwrite`. Key management routes are session-only (a key can never manage keys).
 
@@ -271,7 +271,7 @@ Stable external contract for AI agents and scripts. Same handlers as the UI API,
 
 - `GET /api/v1/openapi.json` — OpenAPI 3 document, no auth (discovery).
 - Key management (session cookie only):
-  - `POST /api/v1/keys` — `{ "name": "…", "scope": "read"|"readwrite" }` → key shown once (`dbk_…`).
+  - `POST /api/v1/keys` — `{ "name": "…", "scope": "read"|"readwrite" }` → key shown once (`dbc_…`).
   - `GET /api/v1/keys` — list (no secrets).
   - `DELETE /api/v1/keys/{id}` — revoke.
 - Mirrored file routes: list/search/content/download/permissions/revisions/zip/thumbnail/multi-zip require `read`; create/content-write/mkdir/simple/rename/move/copy/trash/share/unshare/restore/batch require `readwrite`.
