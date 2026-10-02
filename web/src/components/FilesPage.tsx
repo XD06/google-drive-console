@@ -1,7 +1,7 @@
 import { type Dispatch, type DragEvent, type RefObject, type SetStateAction } from "react";
 import { type FileItem, type SearchScope } from "../lib/api";
 import { FileRow } from "./FileRow";
-import { IconChevronDown, IconChevronUp, IconDownload, IconTrash } from "../lib/icons";
+import { IconChevronDown, IconChevronUp } from "../lib/icons";
 
 type SortKey = "name" | "size" | "modified";
 type SortDir = "asc" | "desc";
@@ -38,11 +38,9 @@ export type FilesPageProps = {
   // Selection.
   selectedId: string | null;
   selectedIds: Set<string>;
-  setSelectedIds: (ids: Set<string>) => void;
   toggleSelectAllVisible: (visible: FileItem[]) => void;
-  doBulkDownload: (visible: FileItem[]) => void;
-  doBulkZip: (visible: FileItem[]) => void;
-  doBulkTrash: () => void;
+  // Bulk actions (Download/ZIP/Trash) and the selection toolbar live in App's
+  // toolbar; the list stays put when a selection becomes active.
   // Row context menu is opened through rowHandlers.onRowContext / onMore —
   // App owns the menu state and the "re-select right-clicked row" behavior.
   // Rows / progressive rendering.
@@ -93,11 +91,7 @@ export function FilesPage({
   toggleSort,
   selectedId,
   selectedIds,
-  setSelectedIds,
   toggleSelectAllVisible,
-  doBulkDownload,
-  doBulkZip,
-  doBulkTrash,
   renderLimit,
   setRenderLimit,
   dragItemId,
@@ -188,30 +182,6 @@ export function FilesPage({
               }}
             >
             <div style={{ position: "relative" }}>
-            {selectedIds.size > 0 && (
-              <div className="selection-bar" role="status">
-                <span className="selection-count">{selectedIds.size} selected</span>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm selection-all-btn"
-                  onClick={() => toggleSelectAllVisible(tableItems)}
-                >
-                  {tableItems.every((it) => selectedIds.has(it.id)) ? "Deselect all" : "Select all"}
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => doBulkDownload(tableItems)}>
-                  <IconDownload size={14} /> Download
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void doBulkZip(tableItems)}>
-                  <IconDownload size={14} /> ZIP
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm btn-danger" onClick={() => void doBulkTrash()}>
-                  <IconTrash size={14} /> Trash
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>
-                  Clear
-                </button>
-              </div>
-            )}
             {(tableLoading || tableItems.length > 0 || tableError) && (
               <table className="file-table">
                 <tbody

@@ -1982,7 +1982,7 @@ void loadFiles(folderId);
         </header>
 
         {view === "files" ? (
-        <div className="toolbar" role="toolbar" aria-label="文件操作">
+        <div className={`toolbar${selectedIds.size > 0 ? " is-selecting" : ""}`} role="toolbar" aria-label="文件操作">
           {searchMode ? (
             <>
               <strong className="toolbar-title">
@@ -1999,6 +1999,37 @@ void loadFiles(folderId);
                 }}
               >
                 Back to folder
+              </button>
+            </>
+          ) : selectedIds.size > 0 ? (
+            /* Selection mode: the toolbar becomes the bulk-action bar (Google
+               Drive style) — the file list below never shifts. */
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-icon"
+                title="Clear selection"
+                aria-label="Clear selection"
+                onClick={clearSelection}
+              >
+                <IconClose size={15} />
+              </button>
+              <span className="selection-count" role="status">
+                {selectedIds.size} selected
+              </span>
+              <div className="spacer" />
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleSelectAllVisible(searchMode ? sortedSearchResults : sortedItems)}>
+                <IconCheck size={14} />
+                {sortedItems.every((it) => selectedIds.has(it.id)) ? "Deselect all" : "Select all"}
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => doBulkDownload(sortedItems)}>
+                <IconDownload size={14} /> Download
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void doBulkZip(sortedItems)}>
+                <IconDownload size={14} /> ZIP
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm is-danger-ghost" onClick={() => void doBulkTrash()}>
+                <IconTrash size={14} /> Trash
               </button>
             </>
           ) : (
@@ -2135,11 +2166,7 @@ void loadFiles(folderId);
               toggleSort={toggleSort}
               selectedId={selectedId}
               selectedIds={selectedIds}
-              setSelectedIds={setSelectedIds}
               toggleSelectAllVisible={toggleSelectAllVisible}
-              doBulkDownload={doBulkDownload}
-              doBulkZip={doBulkZip}
-              doBulkTrash={doBulkTrash}
               renderLimit={renderLimit}
               setRenderLimit={setRenderLimit}
               dragItemId={dragItemId}

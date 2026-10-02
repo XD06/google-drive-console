@@ -1,5 +1,15 @@
 # Progress Log
 
+## 2026-10-03 — Round 2: glass fix + toolbar selection bar
+
+**Status:** complete (tsc + vitest 60 pass; Chrome MCP verified desktop + mobile)
+
+- [x] Wallpaper glass restored: the `prefers-reduced-transparency` "authoritative" downgrade also forced `--blur: none` + opaque fills in wallpaper modes — panels rendered solid even though the wallpaper was now visible. The solid downgrade now applies only to `minimal`; wallpaper modes keep the glass the user picked.
+- [x] Selection toolbar moved into the top toolbar (replaces Upload/tabs while items are selected, Google-Drive style): the file list no longer shifts vertically on desktop or mobile (mobile buttons keep their 36px touch min-height; container padding compensates).
+- [x] Toolbar button polish: capsule shape, gradient primary (Upload), borderless text-chip secondaries, ghost-danger Trash; mobile selection toolbar scrolls horizontally when narrow, "Select all" stays on one line.
+
+---
+
 ## 2026-10-03 — Wallpaper a11y fix + Google-Drive-style selection
 
 **Status:** complete (go test + vitest 60 + tsc pass; Chrome MCP hands-on verification on desktop & mobile viewports)

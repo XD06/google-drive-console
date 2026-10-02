@@ -854,6 +854,63 @@ button:disabled {
   box-shadow: none;
 }
 
+/* ---- Toolbar buttons: quieter, capsule-shaped chrome for the glass look ---- */
+.toolbar .btn {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+/* Secondary toolbar actions (New Folder / New File / Refresh) read as plain
+   text chips; the hover tint keeps them discoverable without borders. */
+.toolbar .btn:not(.btn-primary) {
+  background: transparent;
+  border-color: transparent;
+  font-weight: 500;
+}
+@media (hover: hover) and (pointer: fine) {
+  .toolbar .btn:not(.btn-primary):hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+}
+.toolbar .btn:not(.btn-primary):active:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+/* Primary (Upload) keeps the accent but reads softer: capsule + gradient. */
+.toolbar .btn.btn-primary {
+  padding: 0 15px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--accent) 24%, transparent),
+    0 4px 12px -4px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .toolbar .btn.btn-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, var(--accent) 0%, var(--accent-hover) 100%);
+    box-shadow:
+      0 2px 4px color-mix(in srgb, var(--accent) 30%, transparent),
+      0 6px 16px -4px color-mix(in srgb, var(--accent) 48%, transparent);
+  }
+}
+/* Ghost-danger (Trash in the selection toolbar): quiet until hover. */
+.toolbar .btn.is-danger-ghost {
+  color: var(--danger, #d93025);
+}
+@media (hover: hover) and (pointer: fine) {
+  .toolbar .btn.is-danger-ghost:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger, #d93025) 10%, transparent);
+  }
+}
+/* Mobile selection toolbar: tight but scrollable when narrow. */
+@media (max-width: 900px) {
+  .toolbar.is-selecting { gap: 4px; padding: 4px 10px; overflow-x: auto; scrollbar-width: none; }
+  /* Touch buttons keep their 36px min-height (features.css) — trimming the
+     container padding keeps the toolbar at its resting height, so entering
+     selection never shifts the list vertically. */
+  .toolbar.is-selecting .btn { height: 28px; padding: 0 9px; }
+  .toolbar.is-selecting > .selection-count { font-size: 12px; margin-right: 0; }
+}
+
 .btn-danger {
   background: var(--danger);
   border-color: var(--danger);
@@ -980,30 +1037,29 @@ button:disabled {
   cursor: pointer;
 }
 
+/* Selection lives INSIDE the toolbar (it replaces Upload/New Folder/tabs when
+   items are selected, Google-Drive style) — the file list never shifts. */
+.toolbar.is-selecting {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+
 .selection-bar {
-  /* Sticky, not absolute overlay: it occupies its own row (no longer covers
-     the first file) and stays visible while the list scrolls. */
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  margin-bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 0.5px solid var(--hairline, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  color: var(--text);
-  font-size: 13px;
-  box-shadow: var(--shadow-md);
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
   animation: selbar-in 120ms ease-out;
 }
 
-/* Desktop uses the thead "Select all" checkbox, so the button is redundant;
-   on mobile the thead is hidden and this is the only select-all affordance. */
-.selection-bar .selection-all-btn { display: none; }
+.selection-bar .selection-count,
+.toolbar > .selection-count {
+  font-weight: 600;
+  margin-right: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 @keyframes selbar-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -3499,10 +3555,6 @@ body.is-compact .toolbar {
   /* Keep the last row / overview clear of the fixed bottom nav */
   .table-wrap { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   .overview-page { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
-
-  /* Mobile has no thead — the selection bar's Select all is the only
-     select-all affordance (the head checkbox is hidden with the thead). */
-  .selection-bar .selection-all-btn { display: inline-flex; }
 
   /* In selection mode the FAB competes with bulk actions — hide it, like
      native file apps do. */
