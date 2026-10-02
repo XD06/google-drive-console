@@ -15,6 +15,9 @@ import (
 
 // MaxClientChunk is the max body size accepted per PUT from the browser.
 const MaxClientChunk = 32 << 20 // 32 MiB (supports U5: 5-32MB files as single chunk)
+// MaxBufferedBytes is the hard limit on unaligned data in Job.buffer.
+// Prevents memory buildup under slow network or malicious clients.
+const MaxBufferedBytes = 64 << 20 // 64 MiB
 
 // DriveUploader is the Drive surface used by upload jobs.
 type DriveUploader interface {
@@ -173,6 +176,11 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 	j.buffer = append(j.buffer, data...)
 	j.BytesReceived += int64(len(data))
 	j.Status = StatusUploading
+	// Check buffer overflow to prevent unbounded memory growth
+	if int64(len(j.buffer)) > MaxBufferedBytes {
+		j.mu.Unlock()
+		return nil, &ValidationError{Message: "upload buffer overflow"}
+	}
 	sessionURL := j.SessionURL
 	total := j.Total
 	j.mu.Unlock()
