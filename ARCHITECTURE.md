@@ -15,6 +15,7 @@ graph TD
     API --> AK["internal/apikey<br/>dbc_ key store + scopes"]
     API --> UP["internal/upload<br/>resumable upload pipeline"]
     API --> DL["internal/download<br/>yt-dlp pipeline"]
+    API --> SH["internal/share<br/>revocable direct-link store (/d/{token})"]
 
     UP --> DRIVE["internal/drive<br/>Drive API v3 REST client"]
     DL --> DRIVE
@@ -38,8 +39,9 @@ drive    (no internal deps)          apikey  (no internal deps)
 auth     → config
 upload   → drive
 download → drive
-api      → auth, apikey, upload, download, drive, config
-cmd/server → api, auth, apikey, config, download, upload
+share    → (leaf, no internal imports)
+api      → auth, apikey, upload, download, share, drive, config
+cmd/server → api, auth, apikey, config, download, share, upload
 ```
 
 Responsibilities per package:
@@ -50,7 +52,8 @@ Responsibilities per package:
 - **`internal/auth`** — OAuth 2.0 code flow with CSRF state, token persistence (`DATA_DIR/token.json`), HMAC-signed session cookie `dbc_session`. Also builds a per-request `*drive.Client` from the stored token (exposed to handlers via `DriveFactory`).
 - **`internal/apikey`** — `dbc_`-prefixed API keys persisted to `DATA_DIR/apikeys.json`; scopes `read` / `readwrite`; tokens shown once at creation.
 - **`internal/upload`** — resumable-upload state machine. Depends on the `DriveUploader` **interface** (not the concrete client), so it can be unit-tested with a fake. Jobs persisted to `DATA_DIR/uploads.json` (debounced writes + `SaveNow` on shutdown), reaper cleans terminal jobs (10 min tick, 1 h max age).
-- **`internal/download`** — yt-dlp pipeline: metadata (`--simulate`) → download to `DOWNLOAD_TMP_DIR` → resumable upload to Drive. Depends on `drive` for the upload phase. Jobs persisted to `DATA_DIR/downloads.json`; per-domain proxy routing (domestic sites bypass `DOWNLOAD_PROXY`); feature disabled entirely when `YTDLP_PATH` is unset.
+- **`internal/download`** — yt-dlp pipeline: metadata (`--simulate`) → download to `DOWNLOAD_TMP_DIR` (`.part` breakpoint continuation with pause/resume, auto-retry, URL dedupe against a completed-job cache) → resumable upload to Drive. Depends on `drive` for the upload phase. Jobs persisted to `DATA_DIR/downloads.json`; per-domain proxy routing (domestic sites bypass `DOWNLOAD_PROXY`); feature disabled entirely when `YTDLP_PATH` is unset.
+- **`internal/share`** — revocable direct links: `DATA_DIR/links.json` maps unguessable tokens to Drive file IDs; the public `/d/{token}` route streams bytes through the server (Range passthrough). Idempotent one-link-per-file; a leaf package with no internal imports.
 - **`internal/api`** — HTTP boundary only: `router.go` (Go 1.22+ method patterns), auth/scope middleware, body limits, gzip, logging, static SPA serving, OpenAPI doc. Handlers receive a per-request Drive client via `DriveFactory`; they hold no Google tokens themselves.
 - **`web/`** — React 19 + TypeScript + Vite 6 SPA. `src/lib` holds the API client and **external stores** (`fileStore`, `uploadSession`, `downloadStore`) consumed via `useSyncExternalStore`; `src/components` holds pages and UI. The SPA never talks to Google — everything proxies through the Go server.
 

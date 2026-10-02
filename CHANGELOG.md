@@ -17,6 +17,11 @@ The project has no tagged releases yet — everything below ships on the `main` 
 - **Wallpaper themes (2026-07-26/27)** — Aurora / Sakura / Minimal backdrops behind the glass panels, plus a photo-wallpaper mode with a floating glass content card; mobile top chrome floats as a glass card in photo mode.
 - **Lightbox improvements (2026-07-26)** — previous/next navigation between media and a real-time video speed badge.
 - **Docker (2026-08-25)** — multi-stage build on an Alpine runtime with yt-dlp and ffmpeg pre-installed (~80 MB final image), so the download feature works out of the box; compose adds a `/api/health` health check.
+- **Download pause/resume + dedupe cache (2026-10-03)** — downloads can be paused and resumed (new `paused` job state; yt-dlp now keeps `.part` files, so resume fetches only the missing tail). Transient download failures auto-retry up to 3×, and jobs that were running when the server restarted come back as *paused* (resumable) instead of failed. Re-submitting a URL that is already active returns the existing job, and a URL completed within `DOWNLOAD_CACHE_TTL` (new env var, default 24 h) returns its Drive file without re-downloading.
+- **Direct file links (2026-10-03)** — `POST /api/files/{id}/link` mints a revocable, unguessable `…/d/{token}` URL that streams the file through the server, so it can be shared and fetched anywhere without a Google login. Supports HTTP Range (video seeking, resumable/partial fetches) and md5 ETags; `?dl=1` forces a download. Managed in the Share dialog (create/copy/remove) and mirrored on `/api/v1` with scope guards; links persist in `DATA_DIR/links.json`.
+- **Agent API surface completed (2026-10-03)** — `openapi.json` now documents the previously missing uploads, downloads (incl. pause/resume and dedupe semantics) and direct-link endpoints with a `DownloadJob` schema; `docs/SKILL.md` gained matching URL-download and direct-link recipes.
+- **Drive-style file selection & batch move (2026-10-03)** — Ctrl/Shift-click selection on desktop, long-press selection on mobile, a toolbar that transforms into a bulk-action bar with a three-state select-all checkbox, multi-item context-menu actions, and a move dialog rewritten as a folder browser (paginated subfolder navigation, batch move, self-drop prevention).
+- **UI a11y & polish (2026-10-03)** — static wallpapers and glass transparency survive `prefers-reduced-transparency`/reduced-motion settings; no more bare-gradient flash on reload (wallpaper/theme painted by an inline head script); paused downloads stay visible on the main view.
 
 ### Security
 
@@ -32,6 +37,7 @@ The project has no tagged releases yet — everything below ships on the `main` 
 - ZIP walks are bounded (visited set, max depth, max file count) against deep or cyclic folder structures (2026-08-12).
 - Direct-link downloads produced `.unknown_video` files; the server now infers the extension from the URL (2026-08-25).
 - Retry after a failed upload restarted the whole pipeline; it now re-uploads only, using the already-downloaded temp file (2026-08-25).
+- The service worker cached Vite dev modules, so frontend edits appeared to have no effect until the SW was manually unregistered; dev-only paths (`/src/`, `/@…`) now bypass the cache and the shell cache version was bumped (2026-10-03).
 
 ### Performance
 

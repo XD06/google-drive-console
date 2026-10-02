@@ -62,6 +62,7 @@ All variables are passed via `.env` (loaded by `env_file` in Compose):
 | `DOWNLOAD_PROXY` | — | Proxy for yt-dlp only (e.g. `socks5://host:port`) |
 | `DOWNLOAD_COOKIE_PATH` | — | Netscape cookie file for auth-required sites |
 | `DOWNLOAD_TMP_DIR` | `/data/downloads` | Temp directory for downloaded files |
+| `DOWNLOAD_CACHE_TTL` | `24h` | URL dedupe cache retention for completed download jobs |
 
 > **Note:** In Docker, `YTDLP_PATH` and `DOWNLOAD_TMP_DIR` are pre-set in the
 > Dockerfile. Override them only if you know what you're doing.

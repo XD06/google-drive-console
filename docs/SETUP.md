@@ -54,6 +54,7 @@ Optional (defaults verified in `internal/config/config.go`):
 | `DOWNLOAD_PROXY` | _(empty)_ | Proxy for yt-dlp only (domestic sites bypass it) |
 | `DOWNLOAD_COOKIE_PATH` | _(empty)_ | Netscape cookie file for auth-required sites |
 | `DOWNLOAD_TMP_DIR` | `$DATA_DIR/downloads` | Temp directory for downloaded media |
+| `DOWNLOAD_CACHE_TTL` | `24h` | How long completed download jobs are kept as a URL→Drive dedupe cache (Go duration) |
 
 ## 3. Run in development
 

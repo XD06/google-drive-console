@@ -1,6 +1,6 @@
 ---
 name: drive-backup-console-api
-description: Operate a self-hosted Drive Backup Console (Google Drive gateway) through its /api/v1 REST API — browse folders, search, read/write text files, upload files of any size, download, share, trash/move/copy, ZIP folders. Use when an agent needs programmatic file storage on the user's Google Drive via an API key, or when the user mentions the Drive Backup Console, dbc_ API keys, or /api/v1 file operations.
+description: Operate a self-hosted Drive Backup Console (Google Drive gateway) through its /api/v1 REST API — browse folders, search, read/write text files, upload files of any size, download, share, trash/move/copy, ZIP folders, launch background URL downloads (yt-dlp: pause/resume, dedupe, progress polling), and mint revocable direct links that stream files without a Google login. Use when an agent needs programmatic file storage on the user's Google Drive via an API key, or when the user mentions the Drive Backup Console, dbc_ API keys, or /api/v1 file operations.
 ---
 
 # Drive Backup Console API
@@ -52,6 +52,16 @@ Fetch it when an endpoint's exact schema is needed.
 | Multi ZIP | `POST /api/v1/files/zip` `{"ids":[…]}` | read |
 | Thumbnail | `GET /api/v1/files/{id}/thumbnail` | read |
 | Storage quota | `GET /api/v1/overview` | read |
+| Create download job | `POST /api/v1/downloads` `{"url","parentId?"}` | readwrite |
+| List download jobs | `GET /api/v1/downloads` | read |
+| Download progress | `GET /api/v1/downloads/{id}` | read |
+| Pause / Resume download | `POST /api/v1/downloads/{id}/pause` · `…/resume` | readwrite |
+| Cancel download | `POST /api/v1/downloads/{id}/cancel` | readwrite |
+| Retry download's upload | `POST /api/v1/downloads/{id}/retry-upload` | readwrite |
+| Delete download record | `DELETE /api/v1/downloads/{id}` | readwrite |
+| Create direct link | `POST /api/v1/files/{id}/link` → public `/d/{token}` URL | readwrite |
+| List direct links | `GET /api/v1/links` · `GET /api/v1/files/{id}/links` | read |
+| Revoke direct link | `DELETE /api/v1/links/{token}` | readwrite |
 
 ## Core concepts
 
@@ -110,6 +120,89 @@ curl -H "Authorization: Bearer dbc_xxx" -o out.bin \
 `Range: bytes=0-…` is honored (partial/parallel downloads). Response streams; do not
 buffer large files in memory.
 
+## URL downloads (yt-dlp, server-side)
+
+The server downloads a URL with yt-dlp and uploads the result to Drive as a
+background job — it keeps running after the HTTP response and the browser closing.
+The feature must be enabled server-side (`YTDLP_PATH` set); otherwise every
+endpoint returns `503 download_unavailable`.
+
+```bash
+# 1. Create a job
+curl -X POST -H "Authorization: Bearer dbc_xxx" -H "Content-Type: application/json" \
+  -d '{"url":"https://www.youtube.com/watch?v=…","parentId":"root"}' \
+  {BASE_URL}/api/v1/downloads
+# → 201 { "id": "dl_xxx", "status": "pending", … }          (new job)
+# → 200 { …, "dedupe": "active" }                            (same URL already running)
+# → 200 { …, "dedupe": "completed", "driveFileId": "…" }     (done within cache TTL)
+```
+
+**Dedupe:** submitting a URL that is already queued/running/paused returns the
+existing job (`dedupe:"active"`); a URL completed within `DOWNLOAD_CACHE_TTL`
+(default 24 h) returns its Drive file directly (`dedupe:"completed"`) — no
+re-download. Only genuinely new URLs return `201`.
+
+**Poll** `GET /api/v1/downloads/{id}` while the job runs:
+
+```json
+{
+  "id": "dl_xxx", "url": "…", "status": "downloading", "progress": 42.5,
+  "speed": "5.57MiB/s", "eta": "01:19", "downloaded": 22020096, "total": 52428800,
+  "title": "Video Title", "ext": "mp4", "driveFileId": null, "error": null
+}
+```
+
+Status flow: `pending → resolving → downloading → uploading → completed`, with
+`paused` / `failed` / `cancelled` as side states. On `completed`,
+`driveFileId` is the new Drive file (fetch it via `/files/{id}/download` or share it).
+
+Controls:
+
+```bash
+curl -X POST -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/downloads/dl_xxx/pause   # → 200, keeps .part
+curl -X POST -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/downloads/dl_xxx/resume  # → 202, resumes .part
+curl -X POST -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/downloads/dl_xxx/cancel  # → 200
+curl -X POST -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/downloads/dl_xxx/retry-upload  # upload failed only
+```
+
+- **Pause** is allowed while `pending`/`resolving`/`downloading` (not during
+  upload → `400`). **Resume** continues from the `.part` file — only the
+  missing tail is fetched.
+- Transient download failures auto-retry (3 attempts) before the job turns
+  `failed`. Jobs that were running when the server restarted come back as
+  `paused` and can be resumed.
+- `retry-upload` reuses the already-downloaded temp file (only when the job is
+  `failed` with a local file left); delete records with `DELETE /api/v1/downloads/{id}`.
+
+## Direct links (share without a Google login)
+
+`POST /api/v1/files/{id}/link` mints an unguessable, revocable URL that streams
+the file bytes through this server — recipients need no Google account, and the
+server's own OAuth token is never exposed. Supports HTTP `Range` (video seeking,
+resumable/partial fetches) and md5 `ETag`.
+
+```bash
+# Create (idempotent — one link per file; a second call returns the same token)
+curl -X POST -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/files/{id}/link
+# → 201 { "token": "c5b6…", "url": "https://your-host/d/c5b6…", "fileId": "…", "name": "clip.mp4", "createdAt": "…" }
+
+# Anyone can now fetch it — no auth header:
+curl -o clip.mp4 https://your-host/d/c5b6…                 # 200, inline preview
+curl -o clip.mp4 "https://your-host/d/c5b6…?dl=1"          # forced download
+curl -H "Range: bytes=0-1023" https://your-host/d/c5b6…    # 206 partial content
+
+# Revoke — the public URL stops working immediately (idempotent):
+curl -X DELETE -H "Authorization: Bearer dbc_xxx" {BASE_URL}/api/v1/links/c5b6…
+```
+
+Notes:
+- The `url` is absolute (honors `X-Forwarded-Proto` behind a reverse proxy) and
+  lives at the **server root**, not under `/api/v1`.
+- Folders cannot be linked (`400 is_folder` — ZIP them first); unknown/revoked
+  tokens return `404`.
+- Traffic flows through the server, so the host needs enough bandwidth for the
+  file; links persist in `DATA_DIR/links.json` across restarts.
+
 ## Error handling
 
 All errors: `{ "error": { "code": "…", "message": "…" } }`.
@@ -121,6 +214,7 @@ All errors: `{ "error": { "code": "…", "message": "…" } }`.
 | 403 | insufficient scope / Drive permission | stop; needs `readwrite` key |
 | 429 | Google quota | back off (exponential, respect `Retry-After`) |
 | 502 | upstream Google error | retry once, then surface |
+| 503 | optional feature disabled (`download_unavailable` = `YTDLP_PATH` unset server-side) | stop; the user must enable it in server config |
 
 ## Constraints
 

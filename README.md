@@ -7,7 +7,8 @@ Self-hosted web console for managing personal Google Drive — browse, upload, d
 - **Full Drive browser** — folder navigation, Spotlight-style search (Ctrl/Cmd+K), type filters, batch trash/move, ZIP download
 - **Resumable chunked uploads** — pause/resume, progress tracking, drag-and-drop
 - **Parallel downloads** — multi-stream Range requests; media previews (images, video, PDF, text editing)
-- **Media download** — yt-dlp powered: YouTube, Bilibili, direct links → auto-upload to Drive
+- **Media download** — yt-dlp powered: YouTube, Bilibili, direct links → auto-upload to Drive; background jobs with pause/resume, auto-retry and a 24 h URL dedupe cache
+- **Direct links** — revocable `/d/{token}` URLs that stream files through the server (no Google login needed), with HTTP Range support for video seeking and resumable fetches
 - **Overview dashboard** — storage usage, upload history, type breakdown
 - **Agent-ready API** — `/api/v1` with `dbc_` API keys (read / readwrite) and OpenAPI spec at `/api/v1/openapi.json`
 - Dark / Light / System theme, wallpaper backdrops, responsive desktop & mobile UI
@@ -50,6 +51,7 @@ internal/
   drive/             Google Drive API client (the only Google caller)
   upload/            Resumable upload pipeline
   download/          yt-dlp download pipeline
+  share/             Revocable direct-link store (/d/{token})
 web/                 React SPA (src/ + dist build output)
 docs/                Setup, API contract, architecture archive, design notes
 data/                Runtime state (gitignored; created at startup)
