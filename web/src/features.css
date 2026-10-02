@@ -1498,6 +1498,9 @@ html[data-theme="dark"] .nav-item.is-active {
 html[data-wallpaper="aurora"] body::before,
 html[data-wallpaper="sakura"] body::before,
 html[data-wallpaper="photo"] body::before {
+  /* Static, user-chosen wallpapers must survive the reduced-transparency
+     downgrade at the top of this file, which hides every body::* pseudo. */
+  display: block;
   inset: 0;
   animation: none;
   will-change: auto;
@@ -1519,7 +1522,8 @@ html[data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/
 html[data-theme="dark"][data-wallpaper="aurora"] body::before { background-image: url("/wallpapers/aurora-dark.svg?v=2"); }
 html[data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-light.svg?v=2"); }
 html[data-theme="dark"][data-wallpaper="sakura"] body::before { background-image: url("/wallpapers/sakura-dark.svg?v=2"); }
-html[data-wallpaper="photo"] body::before { background-image: url("/wallpapers/photo-1.jpg"); }
+html[data-wallpaper="photo"] body::before { background-image: url("/wallpapers/photo-1.jpg?v=2"); }
+html[data-theme="dark"][data-wallpaper="photo"] body::before { background-image: url("/wallpapers/photo-1.jpg?v=2"); }
 
 /* Wallpaper modes let far more colour through the panels.
    The pastel wallpapers are pre-tinted, so the glass must not
@@ -1673,9 +1677,8 @@ html[data-wallpaper="photo"] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  html[data-wallpaper="aurora"] body::before,
-  html[data-wallpaper="sakura"] body::before,
-  html[data-wallpaper="photo"] body::before { display: none; }
+  /* Wallpapers are static, user-chosen images — keep them visible under
+     reduced transparency; only the glass blur/fills degrade above. */
 }
 
 

@@ -9,7 +9,7 @@ export type WallpaperId = "aurora" | "sakura" | "photo" | "minimal";
  * based on html[data-theme]. "minimal" keeps the animated gradient field.
  */
 export function useWallpaper() {
-  const [wallpaper, setWallpaper] = useLocalStorage<WallpaperId>("dbc.wallpaper", "aurora");
+  const [wallpaper, setWallpaper] = useLocalStorage<WallpaperId>("dbc.wallpaper", "photo");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-wallpaper", wallpaper);
