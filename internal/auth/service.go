@@ -171,7 +171,13 @@ func (s *Service) HTTPClient(ctx context.Context) (*http.Client, error) {
 		client = oauth2.NewClient(ctx, oauth2.StaticTokenSource(st.Token))
 	} else {
 		src := s.Tokens.TokenSource(s.OAuth.Config, st)
-		client = oauth2.NewClient(ctx, src)
+		// Use oauth2.Transport with custom base transport to reuse connection pool
+		client = &http.Client{
+			Transport: &oauth2.Transport{
+				Base:   http.DefaultTransport.(*http.Transport).Clone(), // preserves connection pooling
+				Source: src,
+			},
+		}
 	}
 
 	// Cache the new client
