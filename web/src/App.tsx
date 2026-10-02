@@ -1029,6 +1029,36 @@ void loadFiles(folderId);
     setSelectedId(id);
   }
 
+  // Mouse selection model (matches Google Drive): plain click selects one row,
+  // Ctrl/Cmd+click toggles rows, Shift+click selects the range from the anchor.
+  const selectAnchorRef = useRef<string | null>(null);
+
+  function selectSingle(id: string) {
+    setSelectedIds(new Set([id]));
+    setSelectedId(id);
+    selectAnchorRef.current = id;
+  }
+
+  function selectRangeTo(id: string) {
+    const list = searchMode ? sortedSearchResults : sortedItems;
+    const anchor = selectAnchorRef.current;
+    const a = anchor ? list.findIndex((it) => it.id === anchor) : -1;
+    const b = list.findIndex((it) => it.id === id);
+    if (a < 0 || b < 0) {
+      selectSingle(id);
+      return;
+    }
+    const [lo, hi] = a <= b ? [a, b] : [b, a];
+    setSelectedIds(new Set(list.slice(lo, hi + 1).map((it) => it.id)));
+    setSelectedId(id);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setSelectedId(null);
+    selectAnchorRef.current = null;
+  }
+
   function toggleSelectAllVisible(visible: FileItem[]) {
     const ids = visible.map((it) => it.id);
     setSelectedIds((prev) => {
@@ -1501,6 +1531,9 @@ void loadFiles(folderId);
     drop: (e: DragEvent<HTMLTableRowElement>, item: FileItem) => void;
     activate: (item: FileItem) => void;
     toggleSelect: (id: string) => void;
+    selectMods: (item: FileItem, mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
+    rowContext: (item: FileItem | null, x: number, y: number) => void;
+    clearSelection: () => void;
     dragOver: (item: FileItem) => void;
     dragLeave: () => void;
     more: (item: FileItem, rect: DOMRect) => void;
@@ -1514,6 +1547,13 @@ void loadFiles(folderId);
         rowCbRef.current?.drop(e, item),
       onActivate: (item: FileItem) => rowCbRef.current?.activate(item),
       onToggleSelect: (id: string) => rowCbRef.current?.toggleSelect(id),
+      onSelectMods: (
+        item: FileItem,
+        mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+      ) => rowCbRef.current?.selectMods(item, mods),
+      onRowContext: (item: FileItem | null, x: number, y: number) =>
+        rowCbRef.current?.rowContext(item, x, y),
+      onClearSelection: () => rowCbRef.current?.clearSelection(),
       onDragOverFolder: (item: FileItem) => rowCbRef.current?.dragOver(item),
       onDragLeaveFolder: () => rowCbRef.current?.dragLeave(),
       onMore: (item: FileItem, rect: DOMRect) => rowCbRef.current?.more(item, rect),
@@ -1540,8 +1580,8 @@ void loadFiles(folderId);
 
   // Also store action functions in a ref so the single-mount keydown handler
   // always calls the latest closure (avoids stale folderId/selectedIds bugs).
-  const keyActionsRef = useRef({ openItem, doBulkTrash, doTrash, copyItemName, toggleSelectAllVisible });
-  keyActionsRef.current = { openItem, doBulkTrash, doTrash, copyItemName, toggleSelectAllVisible };
+  const keyActionsRef = useRef({ openItem, doBulkTrash, doTrash, copyItemName, toggleSelectAllVisible, clearSelection });
+  keyActionsRef.current = { openItem, doBulkTrash, doTrash, copyItemName, toggleSelectAllVisible, clearSelection };
 
   useEffect(() => {
     if (auth.status !== "signed_in") return;
@@ -1586,6 +1626,13 @@ void loadFiles(folderId);
       if (s.view !== "files") return;
       if (isTypingTarget(e.target)) return;
       if (modalBlocks) return;
+
+      // Escape clears the selection once no modal/menu is open to consume it.
+      if (e.key === "Escape" && (s.selectedIds.size > 0 || s.selectedId)) {
+        e.preventDefault();
+        keyActionsRef.current.clearSelection();
+        return;
+      }
 
       const list = s.searchMode ? s.sortedSearchResults : s.sortedItems;
 
@@ -1716,6 +1763,20 @@ void loadFiles(folderId);
       else if (isTextPreviewable(item)) void openTextFile(item);
     },
     toggleSelect: (id) => toggleSelect(id, true),
+    selectMods: (item, mods) => {
+      if (mods.shiftKey) selectRangeTo(item.id);
+      else if (mods.ctrlKey || mods.metaKey) {
+        toggleSelect(item.id, true);
+        selectAnchorRef.current = item.id;
+      } else selectSingle(item.id);
+    },
+    rowContext: (item, x, y) => {
+      // Right-clicking a row outside the current selection re-selects it first
+      // (Google Drive behavior); inside the selection the multi-select is kept.
+      if (item && !selectedIds.has(item.id)) selectSingle(item.id);
+      setCtxMenu({ x, y, item });
+    },
+    clearSelection: () => clearSelection(),
     dragOver: (item) => setDragOverFolder(item.id),
     dragLeave: () => setDragOverFolder(null),
     more: (item, rect) => setCtxMenu({ x: rect.right, y: rect.bottom, item }),
@@ -2079,7 +2140,6 @@ void loadFiles(folderId);
               doBulkDownload={doBulkDownload}
               doBulkZip={doBulkZip}
               doBulkTrash={doBulkTrash}
-              setCtxMenu={setCtxMenu}
               renderLimit={renderLimit}
               setRenderLimit={setRenderLimit}
               dragItemId={dragItemId}

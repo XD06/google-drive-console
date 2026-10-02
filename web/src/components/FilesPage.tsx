@@ -13,6 +13,9 @@ export type RowHandlers = {
   onDrop: (e: DragEvent<HTMLTableRowElement>, item: FileItem) => void;
   onActivate: (item: FileItem) => void;
   onToggleSelect: (id: string) => void;
+  onSelectMods: (item: FileItem, mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
+  onRowContext: (item: FileItem | null, x: number, y: number) => void;
+  onClearSelection: () => void;
   onDragOverFolder: (item: FileItem) => void;
   onDragLeaveFolder: () => void;
   onMore: (item: FileItem, rect: DOMRect) => void;
@@ -40,8 +43,8 @@ export type FilesPageProps = {
   doBulkDownload: (visible: FileItem[]) => void;
   doBulkZip: (visible: FileItem[]) => void;
   doBulkTrash: () => void;
-  // Row context menu.
-  setCtxMenu: (menu: { x: number; y: number; item: FileItem | null } | null) => void;
+  // Row context menu is opened through rowHandlers.onRowContext / onMore —
+  // App owns the menu state and the "re-select right-clicked row" behavior.
   // Rows / progressive rendering.
   renderLimit: number;
   setRenderLimit: Dispatch<SetStateAction<number>>;
@@ -95,7 +98,6 @@ export function FilesPage({
   doBulkDownload,
   doBulkZip,
   doBulkTrash,
-  setCtxMenu,
   renderLimit,
   setRenderLimit,
   dragItemId,
@@ -175,11 +177,27 @@ export function FilesPage({
                 </table>
               </div>
             )}
-            <div className="table-wrap">
+            <div className="table-wrap"
+              onClick={(e) => {
+                // Clicking the empty area below the rows deselects (Google
+                // Drive behavior). Rows, checkboxes and the selection bar
+                // handle their own clicks, so they never reach here.
+                const t = e.target as HTMLElement;
+                if (t.closest("tr[data-id]") || t.closest(".selection-bar") || t.closest("button") || t.closest("input") || t.closest("a")) return;
+                if (selectedIds.size > 0) rowHandlers.onClearSelection();
+              }}
+            >
             <div style={{ position: "relative" }}>
             {selectedIds.size > 0 && (
               <div className="selection-bar" role="status">
                 <span className="selection-count">{selectedIds.size} selected</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm selection-all-btn"
+                  onClick={() => toggleSelectAllVisible(tableItems)}
+                >
+                  {tableItems.every((it) => selectedIds.has(it.id)) ? "Deselect all" : "Select all"}
+                </button>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => doBulkDownload(tableItems)}>
                   <IconDownload size={14} /> Download
                 </button>
@@ -203,7 +221,7 @@ export function FilesPage({
                     const tr = target.closest("tr");
                     const id = tr?.getAttribute("data-id");
                     const item = id ? tableItems.find((it) => it.id === id) ?? null : null;
-                    setCtxMenu({ x: e.clientX, y: e.clientY, item });
+                    rowHandlers.onRowContext(item, e.clientX, e.clientY);
                   }}
                 >
                   {tableLoading && tableItems.length === 0 && (
@@ -236,6 +254,7 @@ export function FilesPage({
                       onDragLeaveFolder={rowHandlers.onDragLeaveFolder}
                       onActivate={rowHandlers.onActivate}
                       onToggleSelect={rowHandlers.onToggleSelect}
+                      onSelectMods={rowHandlers.onSelectMods}
                       onMore={rowHandlers.onMore}
                     />
                   ))}

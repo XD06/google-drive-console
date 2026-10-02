@@ -42,6 +42,7 @@ function renderRow(over: Partial<FileRowProps> = {}) {
     onDragLeaveFolder: vi.fn(),
     onActivate: vi.fn(),
     onToggleSelect: vi.fn(),
+    onSelectMods: vi.fn(),
     onMore: vi.fn(),
     ...over,
   };

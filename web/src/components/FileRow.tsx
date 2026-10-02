@@ -56,6 +56,8 @@ export interface FileRowProps {
   onDragLeaveFolder: () => void;
   onActivate: (item: FileItem) => void;
   onToggleSelect: (id: string) => void;
+  /** Mouse click with modifiers: plain=select, Ctrl/Cmd=toggle, Shift=range. */
+  onSelectMods: (item: FileItem, mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
   onMore: (item: FileItem, rect: DOMRect) => void;
 }
 
@@ -78,6 +80,7 @@ function FileRowBase({
   onDragLeaveFolder,
   onActivate,
   onToggleSelect,
+  onSelectMods,
   onMore,
 }: FileRowProps) {
   // pointerType of the most recent pointerdown (dblclick itself carries none).
@@ -185,19 +188,23 @@ function FileRowBase({
           e.stopPropagation();
           return;
         }
-        // Single-tap to open on touch/pen (double-click is unreliable there).
-        if (!isTouchLike(e)) return;
-        // Swallow the trailing click(s) of a multi-tap so one gesture can't
-        // activate the row more than once (duplicated breadcrumb bug).
-        if (e.detail > 1) return;
         const t = e.target as HTMLElement;
         if (t.closest(".row-more") || t.closest(".col-check")) return;
-        // While multi-selecting, a tap toggles this row instead of opening it.
-        if (t.closest(".shell.is-selecting")) {
-          onToggleSelect(item.id);
+        if (isTouchLike(e)) {
+          // Swallow the trailing click(s) of a multi-tap so one gesture can't
+          // activate the row more than once (duplicated breadcrumb bug).
+          if (e.detail > 1) return;
+          // While multi-selecting, a tap toggles this row instead of opening it.
+          if (t.closest(".shell.is-selecting")) {
+            onToggleSelect(item.id);
+            return;
+          }
+          onActivate(item);
           return;
         }
-        onActivate(item);
+        // Mouse: plain click selects, Ctrl/Cmd toggles, Shift extends the range
+        // (double-click still opens via onDoubleClick below).
+        onSelectMods(item, { shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey });
       }}
       onDoubleClick={(e) => {
         if (isTouchLike(e)) return;

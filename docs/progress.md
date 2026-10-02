@@ -1,5 +1,25 @@
 # Progress Log
 
+## 2026-10-03 — Wallpaper a11y fix + Google-Drive-style selection
+
+**Status:** complete (go test + vitest 60 + tsc pass; Chrome MCP hands-on verification on desktop & mobile viewports)
+
+### Done
+- [x] Wallpaper fix: `prefers-reduced-transparency: reduce` was `display:none`-ing every `body::before/::after`, hiding the static photo/aurora/sakura wallpapers entirely (Windows "transparency effects off"). Static user-chosen wallpapers now survive the downgrade (`display: block` re-set in the wallpaper layer); the minimal animated field stays hidden.
+- [x] Desktop selection model aligned with Google Drive: plain click selects a row (was a no-op), Ctrl/Cmd+click toggles, Shift+click selects the range from the click anchor, double-click still opens, right-click re-selects a row outside the current selection, click on empty space below rows and Escape clear the selection.
+- [x] Selection bar: `position: absolute` overlay → `sticky` (no longer covers the first row, stays visible while scrolling); mobile-only "Select all" button (thead is hidden on phones); FAB hidden while selecting.
+- [x] Touch behavior unchanged: tap opens, long-press enters selection, taps toggle while selecting.
+
+### Verify
+1. Windows with transparency effects off → photo wallpaper now visible in Settings → Appearance.
+2. Desktop: click / Ctrl+click / Shift+click rows; right-click an unselected row; Esc; click empty area.
+3. Mobile viewport (≤900px): long-press row → selection bar with Select all, FAB hidden, first row not covered.
+
+### Checks
+`go test ./... -count=1` green · `cd web && npm test` 60/60 green · `npx tsc --noEmit` clean
+
+---
+
 ## 2026-08-25 — Download feature (yt-dlp → Google Drive)
 
 **Status:** complete (go build pass; manual browser testing done)

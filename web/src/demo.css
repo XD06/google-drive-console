@@ -981,11 +981,12 @@ button:disabled {
 }
 
 .selection-bar {
-  position: absolute;
+  /* Sticky, not absolute overlay: it occupies its own row (no longer covers
+     the first file) and stays visible while the list scrolls. */
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   z-index: 20;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -999,6 +1000,10 @@ button:disabled {
   box-shadow: var(--shadow-md);
   animation: selbar-in 120ms ease-out;
 }
+
+/* Desktop uses the thead "Select all" checkbox, so the button is redundant;
+   on mobile the thead is hidden and this is the only select-all affordance. */
+.selection-bar .selection-all-btn { display: none; }
 @keyframes selbar-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -3494,4 +3499,12 @@ body.is-compact .toolbar {
   /* Keep the last row / overview clear of the fixed bottom nav */
   .table-wrap { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   .overview-page { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+
+  /* Mobile has no thead — the selection bar's Select all is the only
+     select-all affordance (the head checkbox is hidden with the thead). */
+  .selection-bar .selection-all-btn { display: inline-flex; }
+
+  /* In selection mode the FAB competes with bulk actions — hide it, like
+     native file apps do. */
+  .shell.is-selecting .fab-dock { display: none; }
 }
