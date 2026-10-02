@@ -1,6 +1,6 @@
 ﻿/* Drive Backup Console — minimal offline shell SW.
  * Cache static app shell only. Never cache /api or /oauth2. */
-const CACHE = "dbc-shell-v1";
+const CACHE = "dbc-shell-v2";
 const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -24,6 +24,9 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api") || url.pathname.startsWith("/oauth2")) return;
+  // Never cache Vite dev modules — cache-first here served stale source after
+  // edits (the app kept running old code until the SW was unregistered).
+  if (url.pathname.startsWith("/src/") || url.pathname.startsWith("/@")) return;
 
   // Network-first for navigations; cache fallback for shell.
   if (req.mode === "navigate") {
