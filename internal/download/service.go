@@ -133,6 +133,12 @@ func (s *Service) Cancel(id string) (*Job, error) {
 	j.mu.Unlock()
 
 	s.Store.Put(j)
+	
+	// Kill yt-dlp subprocess if running
+	if err := j.KillProcess(); err != nil {
+		log.Printf("download cancel %s: failed to kill process: %v", id, err)
+	}
+	
 	return j, nil
 }
 
@@ -331,7 +337,9 @@ func (s *Service) run(jobID string) {
 	j.setStatus(StatusDownloading)
 	s.Store.Put(j)
 
-	result, err := Download(dlCtx, s.YtDlp, j.URL, func(pct float64, speed, eta string, downloaded, total int64) {
+	result, err := Download(dlCtx, s.YtDlp, j.URL, func(proc *os.Process) {
+		j.SetProcess(proc)
+	}, func(pct float64, speed, eta string, downloaded, total int64) {
 		j.setProgress(pct, speed, eta, downloaded, total)
 		s.Store.Put(j)
 	})

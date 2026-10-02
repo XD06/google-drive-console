@@ -88,7 +88,9 @@ type DownloadResult struct {
 // Download runs yt-dlp to download the file to tmpDir, calling onProgress for
 // each progress update. The context cancellation (or job cancel) will kill the
 // subprocess.
-func Download(ctx context.Context, cfg YtDlpConfig, rawURL string, onProgress func(pct float64, speed, eta string, downloaded, total int64)) (*DownloadResult, error) {
+// onProcessStarted is called once with the process handle so it can be tracked
+// for graceful shutdown.
+func Download(ctx context.Context, cfg YtDlpConfig, rawURL string, onProcessStarted func(*os.Process), onProgress func(pct float64, speed, eta string, downloaded, total int64)) (*DownloadResult, error) {
 	// First, resolve metadata so we know the title/ext for the output template.
 	meta, err := ResolveMetadata(ctx, cfg, rawURL)
 	if err != nil {
@@ -138,6 +140,11 @@ func Download(ctx context.Context, cfg YtDlpConfig, rawURL string, onProgress fu
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start yt-dlp: %w", err)
+	}
+
+	// Notify caller of the process handle for tracking
+	if onProcessStarted != nil {
+		onProcessStarted(cmd.Process)
 	}
 
 	// Read progress lines.

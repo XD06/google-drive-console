@@ -45,7 +45,7 @@ type Job struct {
 
 	// internal fields (not serialized)
 	cancelCh chan struct{}
-}
+	process  *os.Process // yt-dlp subprocess, killed on cancel
 
 // JobSnapshot is a lock-free, JSON-safe copy of a Job's public fields.
 // It is returned by View() and used everywhere we need to pass job data
@@ -137,4 +137,21 @@ func (j *Job) CancelChannel() <-chan struct{} {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	return j.cancelCh
+}
+
+// SetProcess associates the yt-dlp subprocess with this job for graceful shutdown.
+func (j *Job) SetProcess(p *os.Process) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.process = p
+}
+
+// KillProcess forcefully terminates the yt-dlp subprocess if it exists.
+func (j *Job) KillProcess() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.process == nil {
+		return nil
+	}
+	return j.process.Kill()
 }
