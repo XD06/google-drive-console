@@ -22,6 +22,7 @@ The project has no tagged releases yet — everything below ships on the `main` 
 - **Agent API surface completed (2026-10-03)** — `openapi.json` now documents the previously missing uploads, downloads (incl. pause/resume and dedupe semantics) and direct-link endpoints with a `DownloadJob` schema; `docs/SKILL.md` gained matching URL-download and direct-link recipes.
 - **Drive-style file selection & batch move (2026-10-03)** — Ctrl/Shift-click selection on desktop, long-press selection on mobile, a toolbar that transforms into a bulk-action bar with a three-state select-all checkbox, multi-item context-menu actions, and a move dialog rewritten as a folder browser (paginated subfolder navigation, batch move, self-drop prevention).
 - **UI a11y & polish (2026-10-03)** — static wallpapers and glass transparency survive `prefers-reduced-transparency`/reduced-motion settings; no more bare-gradient flash on reload (wallpaper/theme painted by an inline head script); paused downloads stay visible on the main view.
+- **Refined sign-in gate (2026-10-03)** — the signed-out screen now sits on the user's chosen wallpaper (it no longer paints an opaque background over it) as a glass card matching the app's panel style: gradient app mark, overline, Google-G button, entrance animation with reduced-motion opt-out; the "use localhost:5174" hint is dev-only and production shows a data-ownership note instead.
 
 ### Security
 

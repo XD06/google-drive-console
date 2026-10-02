@@ -1,5 +1,17 @@
 # Progress Log
 
+## 2026-10-03 — Round 6: sign-in gate on the wallpaper
+
+**Status:** complete (tsc clean; vitest 60 pass; go test 8 ok; Chrome MCP screenshots across wallpapers/themes/mobile)
+
+- [x] `.gate` no longer paints an opaque `var(--bg)` over the page, so the chosen wallpaper (aurora/sakura/photo) or the minimal gradient field shows behind the signed-out card.
+- [x] `.gate-card` rebuilt as a glass panel: `--workspace-fill` + shared `--blur`, theme-aware hairline border (`--gate-border`), layered shadow, entrance animation (disabled under `prefers-reduced-motion`).
+- [x] Button moved from inline styles to `.gate-btn` with the four-color Google G in a white roundel; larger gradient app mark; overline line added.
+- [x] The "使用 localhost:5174（勿用 127.0.0.1）" hint now renders only in dev (`import.meta.env.DEV`); production shows "数据仅存于你自己的 Google Drive 账号".
+- [x] Verified visually via isolated Chrome context: photo light (desktop + 390px mobile), sakura dark, aurora light, minimal light.
+
+---
+
 ## 2026-10-03 — Round 5b: deploy-ready Docker defaults
 
 **Status:** complete (go test all green; vitest 60 pass; tsc clean; deployed to VPS)

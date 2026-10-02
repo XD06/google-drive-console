@@ -1782,20 +1782,27 @@ void loadFiles(folderId);
       <section className="gate" aria-label="登录">
         <div className="gate-card">
           <div className="gate-mark" aria-hidden="true">
-            <IconDrive size={20} />
+            <IconDrive size={26} />
           </div>
+          <p className="gate-overline">Self-hosted · Google Drive</p>
           <h1>Drive Backup Console</h1>
-          <p>
+          <p className="gate-desc">
             自建控制台：浏览个人 Google Drive、上传备份、查看进度。授权后会回到本页。
           </p>
-          <a
-            href="/oauth2/login"
-            className="btn btn-primary"
-            style={{ width: "100%", height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
-          >
+          <a href="/oauth2/login" className="gate-btn">
+            <span className="gate-glogo" aria-hidden="true">
+              <svg viewBox="0 0 18 18" width="13" height="13" aria-hidden="true">
+                <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92a8.78 8.78 0 0 0 2.68-6.62z" />
+                <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.32A9 9 0 0 0 9 18z" />
+                <path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.96H.96a9 9 0 0 0 0 8.08l3.01-2.32z" />
+                <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59A9 9 0 0 0 .96 4.96l3.01 2.32C4.68 5.16 6.66 3.58 9 3.58z" />
+              </svg>
+            </span>
             Connect Google
           </a>
-          <p className="gate-hint">使用 localhost:5174（勿用 127.0.0.1）</p>
+          <p className="gate-hint">
+            {import.meta.env.DEV ? "开发环境使用 localhost:5174（勿用 127.0.0.1）" : "数据仅存于你自己的 Google Drive 账号"}
+          </p>
         </div>
       </section>
     );

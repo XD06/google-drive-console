@@ -223,48 +223,146 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: var(--bg);
+  /* The wallpaper (aurora/sakura/photo) or animated gradient field
+     (minimal) lives on body/body::before — stay transparent so the
+     user's chosen backdrop shows behind the card. */
+  background: transparent;
+}
+
+:root {
+  --gate-border: rgba(255, 255, 255, 0.55);
+}
+
+html[data-theme="dark"] {
+  --gate-border: rgba(255, 255, 255, 0.14);
 }
 
 .gate-card {
-  width: min(400px, 100%);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 28px 26px;
-  box-shadow: var(--shadow-md);
+  width: min(420px, 100%);
+  /* Same glass recipe as the workspace panels: translucent fill that
+     tracks the wallpaper mode (--workspace-fill) plus the shared blur. */
+  background: var(--workspace-fill);
+  backdrop-filter: var(--blur, saturate(130%) blur(30px));
+  -webkit-backdrop-filter: var(--blur, saturate(130%) blur(30px));
+  border: 1px solid var(--gate-border);
+  border-radius: var(--radius-xl);
+  padding: 40px 36px 30px;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.16),
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  animation: gate-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes gate-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-card {
+    animation: none;
+  }
 }
 
 .gate-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #fff;
   display: grid;
   place-items: center;
-  margin-bottom: 18px;
-  box-shadow: inset 0 0 0 1px rgba(0, 113, 227, 0.12);
+  margin-bottom: 20px;
+  box-shadow:
+    0 8px 20px rgba(0, 113, 227, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.gate-overline {
+  margin: 0 0 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .gate-card h1 {
-  margin: 0 0 8px;
-  font-size: 1.25rem;
-  font-weight: 650;
+  margin: 0 0 10px;
+  font-size: 1.45rem;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
-.gate-card p {
-  margin: 0 0 22px;
+.gate-desc {
+  margin: 0 0 26px;
   color: var(--muted);
   font-size: 0.92rem;
-  max-width: 38ch;
+  line-height: 1.55;
+  max-width: 40ch;
+}
+
+.gate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow:
+    0 10px 22px rgba(0, 113, 227, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.gate-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow:
+    0 14px 28px rgba(0, 113, 227, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.gate-btn:active {
+  transform: translateY(0);
+  filter: brightness(0.98);
+  box-shadow: 0 6px 14px rgba(0, 113, 227, 0.3);
+}
+
+.gate-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring), 0 10px 22px rgba(0, 113, 227, 0.32);
+}
+
+.gate-glogo {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  flex: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 .gate-hint {
-  margin: 16px 0 0;
+  margin: 18px 0 0;
   font-size: 0.78rem;
   color: var(--muted);
+  text-align: center;
 }
 
 .shell {
