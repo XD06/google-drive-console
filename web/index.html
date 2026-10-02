@@ -15,6 +15,21 @@
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Drive Backup Console</title>
+    <script>
+      // Paint the wallpaper/theme before React mounts — without this the
+      // first frames show the bare body gradient (flash on every reload).
+      // Values mirror useWallpaper.ts / useTheme.ts; the hooks stay idempotent.
+      (function () {
+        try {
+          var m = document.documentElement;
+          var w = JSON.parse(localStorage.getItem("dbc.wallpaper") || '"photo"');
+          m.setAttribute("data-wallpaper", String(w));
+          var t = JSON.parse(localStorage.getItem("dbc.theme") || '"auto"');
+          var dark = t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+          m.setAttribute("data-theme", dark ? "dark" : "light");
+        } catch (e) { /* private mode etc. — hooks will set defaults later */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

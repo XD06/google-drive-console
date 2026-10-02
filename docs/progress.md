@@ -1,5 +1,17 @@
 # Progress Log
 
+## 2026-10-03 — Round 3: no flash on reload, select-all checkbox, batch move
+
+**Status:** complete (tsc + vitest 60 pass; Chrome MCP hands-on incl. real batch move + revert)
+
+- [x] Reload flash fixed: `<html>` had no `data-wallpaper` until React's first effect, so every reload flashed the bare body gradient. An inline script in `index.html` now paints `data-wallpaper`/`data-theme` from localStorage before React mounts (hooks remain the source of truth).
+- [x] Selection toolbar: the big round ✕ button read as "select all" but cleared the selection. Replaced with a square three-state select-all checkbox (checked / mixed / unchecked, `role="checkbox" aria-checked`); compact ✕ at the far right clears.
+- [x] Batch move: Move now accepts the whole selection (toolbar "Move" button + multi-aware context menu showing "Move N items… / Trash N items / Download N items / ZIP N items" when right-clicking inside the selection; single-item actions hidden). `doMove` moves items one-by-one with per-item failure reporting.
+- [x] Move dialog rewritten as a folder browser: breadcrumb + subfolder list loaded via `listFiles` (was a `<select>` that only knew root + breadcrumbs + sibling folders). Destination defaults to the current folder; moved items are excluded from the browse list so a folder can't be dropped into itself. Fixed trail bug: the main breadcrumb omits root, so the browser path was missing "My Drive" when opening from a subfolder.
+- [x] Verified end-to-end with a real move of 2 folders root → Downloads → root (data restored).
+
+---
+
 ## 2026-10-03 — Round 2: glass fix + toolbar selection bar
 
 **Status:** complete (tsc + vitest 60 pass; Chrome MCP verified desktop + mobile)

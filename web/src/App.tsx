@@ -18,6 +18,7 @@ fileThumbnailUrl,
   formatBytes,
   logout,
   createFolder,
+  listFiles,
   trashFile,
   renameFile,
   updateFile,
@@ -74,16 +75,19 @@ import { FileTypeIcon, iconBoxClass } from "./lib/FileTypeIcon";
 import {
   IconCheck,
   IconChevronLeft,
+  IconChevronRight,
   IconClose,
   IconCopy,
   IconDownload,
   IconDrive,
   IconFilePlus,
   IconFilter,
+  IconFolder,
   IconFolderPlus,
   IconHelp,
   IconHistory,
   IconMenu,
+  IconMinus,
   IconMoon,
   IconMove,
   IconOpen,
@@ -268,8 +272,16 @@ export default function App() {
   const [descItem, setDescItem] = useState<FileItem | null>(null);
   const [descBusy, setDescBusy] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
-  const [moveItem, setMoveItem] = useState<FileItem | null>(null);
-  const [moveTarget, setMoveTarget] = useState("root");
+  // Move supports a batch: the toolbar/ctx-menu hand over the full selection.
+  const [moveItems, setMoveItems] = useState<FileItem[] | null>(null);
+  // Destination picker: a small folder browser (browse into any folder of the
+  // Drive instead of a <select> that only knew the breadcrumb trail).
+  const [moveBrowseId, setMoveBrowseId] = useState("root");
+  const [moveBrowseTrail, setMoveBrowseTrail] = useState<{ id: string; name: string }[]>([
+    { id: "root", name: "My Drive" },
+  ]);
+  const [moveBrowseItems, setMoveBrowseItems] = useState<FileItem[]>([]);
+  const [moveBrowseLoading, setMoveBrowseLoading] = useState(false);
   const [moveBusy, setMoveBusy] = useState(false);
   // Copy-to dialog (same pattern as Move)
   const [copyOpen, setCopyOpen] = useState(false);
@@ -886,36 +898,85 @@ try {
     }
   }
 
-  function openMove(item: FileItem) {
-    const current = folderId && folderId !== "root" ? folderId : "root";
-    // Prefer parent of current folder (go up one), else root
-    const defaultTarget =
-      trail.length >= 2
-        ? trail[trail.length - 2].id
-        : trail.length === 1
-          ? "root"
-          : current === "root"
-            ? "root"
-            : "root";
-    setMoveItem(item);
-    setMoveTarget(defaultTarget);
+  // Open the move dialog for one or more items. The destination starts at the
+  // folder currently being viewed; the user then browses into any folder.
+  function openMove(targets: FileItem[]) {
+    if (targets.length === 0) return;
+    // The browser excludes the moved items themselves, so a folder can never
+    // be dropped into itself.
+    setMoveItems(targets);
+    const startId = folderId || "root";
+    setMoveBrowseId(startId);
+    // The main breadcrumb trail does NOT contain the root entry (it's a
+    // hardcoded crumb), so always prepend it for the destination browser.
+    setMoveBrowseTrail(
+      startId === "root"
+        ? [{ id: "root", name: "My Drive" }]
+        : [{ id: "root", name: "My Drive" }, ...trail.map((c) => ({ ...c }))],
+    );
     setMoveOpen(true);
     setCtxMenu(null);
+    setRowMenuId(null);
+    void loadMoveFolder(startId, new Set(targets.map((t) => t.id)));
+  }
+
+  async function loadMoveFolder(fid: string, exclude: Set<string>) {
+    setMoveBrowseLoading(true);
+    try {
+      const acc: FileItem[] = [];
+      let token: string | null = null;
+      do {
+        const res = await listFiles({ folderId: fid === "root" ? undefined : fid, pageToken: token ?? undefined });
+        for (const it of res.items) {
+          if (it.isFolder && !exclude.has(it.id)) acc.push(it);
+        }
+        token = res.nextPageToken;
+      } while (token);
+      setMoveBrowseItems(acc);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not load folders", true);
+      setMoveBrowseItems([]);
+    } finally {
+      setMoveBrowseLoading(false);
+    }
+  }
+
+  function moveBrowseInto(folder: { id: string; name: string }) {
+    const exclude = new Set((moveItems ?? []).map((t) => t.id));
+    setMoveBrowseId(folder.id);
+    setMoveBrowseTrail((prev) => {
+      const idx = prev.findIndex((c) => c.id === folder.id);
+      if (idx >= 0) return prev.slice(0, idx + 1);
+      return [...prev, { id: folder.id, name: folder.name }];
+    });
+    void loadMoveFolder(folder.id, exclude);
   }
 
   async function doMove() {
-    if (!moveItem) return;
-    const parentId = moveTarget.trim() || "root";
+    if (!moveItems || moveItems.length === 0) return;
+    const parentId = moveBrowseId;
     setMoveBusy(true);
     try {
-await moveFile(moveItem.id, parentId, folderId);
-showToast(`Moved "${moveItem.name}"`);
-setMoveOpen(false);
-setMoveItem(null);
-patchItems((list) => list.filter((it) => it.id !== moveItem.id));
-void loadFiles(folderId);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Move failed", true);
+      const movedIds = new Set<string>();
+      const failed: string[] = [];
+      for (const it of moveItems) {
+        try {
+          await moveFile(it.id, parentId, folderId);
+          movedIds.add(it.id);
+        } catch {
+          failed.push(it.name);
+        }
+      }
+      const destName = moveBrowseTrail[moveBrowseTrail.length - 1].name;
+      if (movedIds.size > 0) {
+        showToast(`Moved ${movedIds.size} item${movedIds.size === 1 ? "" : "s"} to “${destName}”`);
+        patchItems((list) => list.filter((it) => !movedIds.has(it.id)));
+      }
+      if (failed.length > 0) showToast(`Could not move ${failed.length}: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? "…" : ""}`, true);
+      setMoveOpen(false);
+      setMoveItems(null);
+      clearSelection();
+      void loadFiles(folderId);
     } finally {
       setMoveBusy(false);
     }
@@ -1130,7 +1191,11 @@ void loadFiles(folderId);
     }
   }
 
-  const moveTargets = useMemo(() => {
+  // Text editor modal handlers
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Copy-to keeps the simple breadcrumb-based target list (same as before).
+  const copyTargets = useMemo(() => {
     const opts: { id: string; label: string }[] = [{ id: "root", label: "My Drive (root)" }];
     for (const c of trail) {
       if (!opts.some((o) => o.id === c.id)) opts.push({ id: c.id, label: c.name });
@@ -1138,18 +1203,14 @@ void loadFiles(folderId);
     if (folderId && folderId !== "root" && !opts.some((o) => o.id === folderId)) {
       opts.push({ id: folderId, label: "Current folder" });
     }
-    // Sibling folders in the current listing (common drive UX)
     for (const it of items) {
       if (!it.isFolder) continue;
-      if (moveItem && it.id === moveItem.id) continue;
+      if (copyItemState && it.id === copyItemState.id) continue;
       if (opts.some((o) => o.id === it.id)) continue;
       opts.push({ id: it.id, label: it.name });
     }
     return opts;
-  }, [trail, folderId, items, moveItem]);
-
-  // Text editor modal handlers
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  }, [trail, folderId, items, copyItemState]);
 
   // Memoized lightbox item avoids items.find() on every App render while preview is open
   const lightboxItem = useMemo(() => {
@@ -1744,6 +1805,9 @@ void loadFiles(folderId);
   const avatar = (email?.[0] ?? "?").toUpperCase();
 
   const typeTotal = items.length || 1;
+  // Three-state select-all checkbox in the selection toolbar.
+  const visibleNow = searchMode ? sortedSearchResults : sortedItems;
+  const allSelected = visibleNow.length > 0 && visibleNow.every((it) => selectedIds.has(it.id));
   const storageLimit = overview?.storage.limit ?? 0;
   const storageUsage = overview?.storage.usage ?? 0;
   const storagePct =
@@ -2003,24 +2067,30 @@ void loadFiles(folderId);
             </>
           ) : selectedIds.size > 0 ? (
             /* Selection mode: the toolbar becomes the bulk-action bar (Google
-               Drive style) — the file list below never shifts. */
+               Drive style) — the file list below never shifts. The square
+               button on the left is a three-state select-all checkbox. */
             <>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm btn-icon"
-                title="Clear selection"
-                aria-label="Clear selection"
-                onClick={clearSelection}
+                role="checkbox"
+                aria-checked={allSelected ? "true" : "mixed"}
+                aria-label={allSelected ? "Deselect all" : "Select all"}
+                title={allSelected ? "Deselect all" : "Select all"}
+                className={`btn btn-ghost btn-sm sel-all${allSelected ? " is-checked" : " is-partial"}`}
+                onClick={() => toggleSelectAllVisible(searchMode ? sortedSearchResults : sortedItems)}
               >
-                <IconClose size={15} />
+                {allSelected ? <IconCheck size={14} /> : <IconMinus size={14} />}
               </button>
               <span className="selection-count" role="status">
                 {selectedIds.size} selected
               </span>
               <div className="spacer" />
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleSelectAllVisible(searchMode ? sortedSearchResults : sortedItems)}>
-                <IconCheck size={14} />
-                {sortedItems.every((it) => selectedIds.has(it.id)) ? "Deselect all" : "Select all"}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => openMove(sortedItems.filter((it) => selectedIds.has(it.id)))}
+              >
+                <IconMove size={14} /> Move
               </button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => doBulkDownload(sortedItems)}>
                 <IconDownload size={14} /> Download
@@ -2030,6 +2100,15 @@ void loadFiles(folderId);
               </button>
               <button type="button" className="btn btn-ghost btn-sm is-danger-ghost" onClick={() => void doBulkTrash()}>
                 <IconTrash size={14} /> Trash
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-icon sel-clear"
+                title="Clear selection"
+                aria-label="Clear selection"
+                onClick={clearSelection}
+              >
+                <IconClose size={14} />
               </button>
             </>
           ) : (
@@ -2346,7 +2425,7 @@ void loadFiles(folderId);
         </div>
       </div>
 
-      {/* Move modal */}
+      {/* Move modal — destination is picked by browsing folders */}
       <div
         className={`mkdir-overlay${moveOpen ? " is-on" : ""}`}
         hidden={!moveOpen}
@@ -2359,26 +2438,61 @@ void loadFiles(folderId);
         hidden={!moveOpen}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Move{moveItem ? ` “${moveItem.name}”` : ""}</h3>
+          <h3 style={{ margin: 0 }}>
+            Move{" "}
+            {moveItems
+              ? moveItems.length === 1
+                ? `“${moveItems[0].name}”`
+                : `${moveItems.length} items`
+              : ""}
+          </h3>
           <button type="button" className="btn btn-ghost btn-sm btn-icon" aria-label="Close" disabled={moveBusy} onClick={() => setMoveOpen(false)}>
             <IconClose size={16} />
           </button>
         </div>
-        <label style={{ display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Destination</label>
-        <select
-          value={moveTarget}
-          onChange={(e) => setMoveTarget(e.target.value)}
-          disabled={moveBusy}
-          style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", marginBottom: 12, background: "var(--surface)", color: "var(--text)" }}
-        >
-          {moveTargets.map((t) => (
-            <option key={t.id} value={t.id}>{t.label}</option>
+        <label style={{ display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+          Move to <strong style={{ color: "var(--text)" }}>{moveBrowseTrail[moveBrowseTrail.length - 1].name}</strong>
+        </label>
+        <nav className="crumbs move-crumbs" aria-label="Destination path" style={{ marginBottom: 8 }}>
+          {moveBrowseTrail.map((c, i) => (
+            <span key={c.id} style={{ display: "contents" }}>
+              {i > 0 && <span className="crumb-sep" aria-hidden="true">/</span>}
+              <button
+                type="button"
+                className={`crumb${i === moveBrowseTrail.length - 1 ? " is-current" : ""}`}
+                disabled={moveBusy}
+                onClick={() => moveBrowseInto(c)}
+              >
+                {c.name}
+              </button>
+            </span>
           ))}
-        </select>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        </nav>
+        <div className="move-folder-list" role="listbox" aria-label="Folders">
+          {moveBrowseLoading ? (
+            <div className="move-folder-empty">Loading…</div>
+          ) : moveBrowseItems.length === 0 ? (
+            <div className="move-folder-empty">No subfolders here</div>
+          ) : (
+            moveBrowseItems.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className="move-folder-row"
+                disabled={moveBusy}
+                onClick={() => moveBrowseInto({ id: f.id, name: f.name })}
+              >
+                <IconFolder size={16} />
+                <span className="move-folder-name">{f.name}</span>
+                <IconChevronRight size={14} />
+              </button>
+            ))
+          )}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
           <button type="button" className="btn btn-ghost" disabled={moveBusy} onClick={() => setMoveOpen(false)}>Cancel</button>
           <button type="button" className="btn btn-primary" disabled={moveBusy} onClick={() => void doMove()}>
-            {moveBusy ? "Moving…" : "Move"}
+            {moveBusy ? "Moving…" : "Move here"}
           </button>
         </div>
       </div>
@@ -2408,7 +2522,7 @@ void loadFiles(folderId);
           disabled={copyBusy}
           style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", marginBottom: 12, background: "var(--surface)", color: "var(--text)" }}
         >
-          {moveTargets.map((t) => (
+          {copyTargets.map((t) => (
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
         </select>
@@ -2672,71 +2786,96 @@ void loadFiles(folderId);
             </>
           )}
 
-          {/* File or folder: full menu */}
-          {ctxMenu.item && (
-            <>
-              {/* Open */}
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openItem(ctxMenu.item!); }}>
-                <IconOpen size={15} /> Open
-              </button>
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); toggleSelect(ctxMenu.item!.id, true); }}>
-                <IconCheck size={15} /> {selectedIds.has(ctxMenu.item.id) ? "Deselect" : "Select"}
-              </button>
-
-              <div className="ctx-separator" />
-
-              {/* Download / Share */}
-              {ctxMenu.item.isFolder ? (
-                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); doZipDownload(ctxMenu.item!); }}>
-                  <IconDownload size={15} /> Download as ZIP
-                </button>
-              ) : (
-                <a role="menuitem" href={fileDownloadUrl(ctxMenu.item.id, ctxMenu.item)} onClick={(e) => { e.stopPropagation(); setCtxMenu(null); }}>
-                  <IconDownload size={15} /> Download
-                </a>
-              )}
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); doShare(ctxMenu.item!); }}>
-                <IconShare size={15} /> Share
-              </button>
-
-              <div className="ctx-separator" />
-
-              {/* Edit: Rename / Move / Duplicate */}
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openRename(ctxMenu.item!); }}>
-                <IconRename size={15} /> Rename
-              </button>
-              {ctxMenu.item.isFolder && (
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openEditDesc(ctxMenu.item!); }}>
-                <IconRename size={15} /> {ctxMenu.item.description ? "Edit description" : "Add description"}
-              </button>
-              )}
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openMove(ctxMenu.item!); }}>
-                <IconMove size={15} /> Move to…
-              </button>
-              {!ctxMenu.item.isFolder && (
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); doCopy(ctxMenu.item!); }}>
-                <IconCopy size={15} /> Copy to…
-              </button>
-              )}
-
-              {/* Version history (files only) */}
-              {!ctxMenu.item.isFolder && (
-                <>
-                  <div className="ctx-separator" />
-                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); doRevisions(ctxMenu.item!); }}>
-                    <IconHistory size={15} /> Version history
+          {/* File or folder: full menu. When the right-clicked row belongs to
+              a multi-selection, bulk actions act on the whole selection. */}
+          {ctxMenu.item && (() => {
+            const multi = selectedIds.size > 1 && selectedIds.has(ctxMenu.item.id);
+            const targets = multi
+              ? (searchMode ? sortedSearchResults : sortedItems).filter((it) => selectedIds.has(it.id))
+              : [ctxMenu.item];
+            const n = targets.length;
+            return (
+              <>
+                {/* Open */}
+                {!multi && (
+                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openItem(ctxMenu.item!); }}>
+                    <IconOpen size={15} /> Open
                   </button>
-                </>
-              )}
+                )}
+                {!multi && (
+                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); toggleSelect(ctxMenu.item!.id, true); }}>
+                    <IconCheck size={15} /> {selectedIds.has(ctxMenu.item.id) ? "Deselect" : "Select"}
+                  </button>
+                )}
 
-              <div className="ctx-separator" />
+                {multi && <div className="ctx-separator" />}
 
-              {/* Danger: Trash */}
-              <button type="button" role="menuitem" className="is-danger" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void doTrash(ctxMenu.item!); }}>
-                <IconTrash size={15} /> Move to trash
-              </button>
-            </>
-          )}
+                {/* Download — files individually or everything zipped */}
+                {multi ? (
+                  <>
+                    <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); doBulkDownload(targets); }}>
+                      <IconDownload size={15} /> Download {n} items
+                    </button>
+                    <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void doBulkZip(targets); }}>
+                      <IconDownload size={15} /> ZIP {n} items
+                    </button>
+                  </>
+                ) : ctxMenu.item.isFolder ? (
+                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); doZipDownload(ctxMenu.item!); }}>
+                    <IconDownload size={15} /> Download as ZIP
+                  </button>
+                ) : (
+                  <a role="menuitem" href={fileDownloadUrl(ctxMenu.item.id, ctxMenu.item)} onClick={(e) => { e.stopPropagation(); setCtxMenu(null); }}>
+                    <IconDownload size={15} /> Download
+                  </a>
+                )}
+                {!multi && (
+                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); doShare(ctxMenu.item!); }}>
+                    <IconShare size={15} /> Share
+                  </button>
+                )}
+
+                <div className="ctx-separator" />
+
+                {/* Edit: Rename / Move / Duplicate (single-selection only) */}
+                {!multi && (
+                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openRename(ctxMenu.item!); }}>
+                    <IconRename size={15} /> Rename
+                  </button>
+                )}
+                {!multi && ctxMenu.item.isFolder && (
+                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openEditDesc(ctxMenu.item!); }}>
+                  <IconRename size={15} /> {ctxMenu.item.description ? "Edit description" : "Add description"}
+                </button>
+                )}
+                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); openMove(targets); }}>
+                  <IconMove size={15} /> {multi ? `Move ${n} items…` : "Move to…"}
+                </button>
+                {!multi && !ctxMenu.item.isFolder && (
+                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); doCopy(ctxMenu.item!); }}>
+                  <IconCopy size={15} /> Copy to…
+                </button>
+                )}
+
+                {/* Version history (files only) */}
+                {!multi && !ctxMenu.item.isFolder && (
+                  <>
+                    <div className="ctx-separator" />
+                    <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); doRevisions(ctxMenu.item!); }}>
+                      <IconHistory size={15} /> Version history
+                    </button>
+                  </>
+                )}
+
+                <div className="ctx-separator" />
+
+                {/* Danger: Trash */}
+                <button type="button" role="menuitem" className="is-danger" onClick={(e) => { e.stopPropagation(); setCtxMenu(null); if (multi) void doBulkTrash(); else void doTrash(ctxMenu.item!); }}>
+                  <IconTrash size={15} /> {multi ? `Trash ${n} items` : "Move to trash"}
+                </button>
+              </>
+            );
+          })()}
         </div>
       )}
 

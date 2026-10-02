@@ -33,6 +33,14 @@ export function IconUpload(p: IconProps) {
   );
 }
 
+export function IconFolder(p: IconProps) {
+  return (
+    <Base {...p}>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </Base>
+  );
+}
+
 export function IconFolderPlus(p: IconProps) {
   return (
     <Base {...p}>
@@ -201,6 +209,14 @@ export function IconCheck(p: IconProps) {
   return (
     <Base {...p} strokeWidth={p.strokeWidth ?? 2.2}>
       <path d="M20 6L9 17l-5-5" />
+    </Base>
+  );
+}
+
+export function IconMinus(p: IconProps) {
+  return (
+    <Base {...p} strokeWidth={p.strokeWidth ?? 2.6}>
+      <path d="M5 12h14" />
     </Base>
   );
 }
