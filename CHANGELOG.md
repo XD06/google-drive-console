@@ -38,6 +38,7 @@ The project has no tagged releases yet — everything below ships on the `main` 
 - Direct-link downloads produced `.unknown_video` files; the server now infers the extension from the URL (2026-08-25).
 - Retry after a failed upload restarted the whole pipeline; it now re-uploads only, using the already-downloaded temp file (2026-08-25).
 - The service worker cached Vite dev modules, so frontend edits appeared to have no effect until the SW was manually unregistered; dev-only paths (`/src/`, `/@…`) now bypass the cache and the shell cache version was bumped (2026-10-03).
+- The compose port mapping published the app on all interfaces; it now binds `127.0.0.1` so a host reverse proxy fronts it by default, and the image build no longer hardcodes `GOARCH=amd64` (uses BuildKit's `TARGETARCH`) (2026-10-03).
 
 ### Performance
 

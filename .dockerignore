@@ -24,3 +24,4 @@ tmp-*
 google-drive-server.exe
 *.md
 !README.md
+*.com.json

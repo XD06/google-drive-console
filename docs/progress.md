@@ -1,5 +1,16 @@
 # Progress Log
 
+## 2026-10-03 — Round 5b: deploy-ready Docker defaults
+
+**Status:** complete (go test all green; vitest 60 pass; tsc clean; deployed to VPS)
+
+- [x] **Loopback port binding:** `docker-compose.yml` now maps `127.0.0.1:${PORT:-3000}:3000` instead of publishing on all interfaces — the intended setup is a host reverse proxy in front, and the API should not be directly reachable. `PORT` in `.env` picks the host port. Documented in `docs/docker.md` (new "Port binding" note).
+- [x] **Arch-generic build:** the backend build stages no longer hardcode `GOARCH=amd64`; they use BuildKit's auto-injected `TARGETARCH` (amd64 fallback for legacy builders), so the same Dockerfile builds on ARM VPS.
+- [x] `.dockerignore` excludes `*.com.json` (yt-dlp cookie exports must never ride in the build context).
+- [x] Verified: three local suites green; image built and container healthy on the production Ubuntu 24.04 VPS (`/api/health` 200 via loopback port).
+
+---
+
 ## 2026-10-03 — Round 4: background download control + direct links
 
 **Status:** complete (go test all green; tsc + vitest 60 pass; Chrome MCP smoke below)

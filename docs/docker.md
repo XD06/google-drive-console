@@ -29,6 +29,14 @@ docker compose exec app yt-dlp --version
 # → 2024.x.x
 ```
 
+### Port binding
+
+Compose maps the app to **`127.0.0.1:${PORT:-3000}:3000`** — loopback only, so
+the API is never directly exposed to the internet; put a reverse proxy on the
+host in front of it (see below). Set `PORT` in `.env` to change the host port
+(e.g. `PORT=3001` when 3000 is taken). To reach the app without a proxy, change
+the mapping to `"${PORT:-3000}:3000"` yourself.
+
 ## Environment Variables
 
 All variables are passed via `.env` (loaded by `env_file` in Compose):

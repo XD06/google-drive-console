@@ -15,6 +15,8 @@ RUN npm run build
 
 # --- Stage 2: Backend build ---
 FROM golang:1.23-alpine AS backend
+# TARGETARCH is auto-set by BuildKit to the host arch; amd64 fallback for legacy builders
+ARG TARGETARCH=amd64
 RUN apk add --no-cache ca-certificates
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -23,9 +25,9 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 # Embed the frontend dist into the binary's serving path
 COPY --from=frontend /build/web/dist web/dist/
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /server ./cmd/server
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /cookieconvert ./cmd/cookieconvert
 
 # --- Stage 3: Runtime (Alpine with yt-dlp + ffmpeg) ---
