@@ -14,10 +14,10 @@ import (
 
 // Deps holds optional services wired by main.
 type Deps struct {
-	Config   config.Config
-	Auth     *auth.Service
-	Uploads  *upload.Service            // Store required; Drive may be filled per-request
-	Keys     *apikey.Store              // programmatic API keys for /api/v1 (nil disables key auth)
+	Config    config.Config
+	Auth      *auth.Service
+	Uploads   *upload.Service           // Store required; Drive may be filled per-request
+	Keys      *apikey.Store             // programmatic API keys for /api/v1 (nil disables key auth)
 	Downloads *download.PersistentStore // nil disables download feature
 }
 
@@ -76,13 +76,13 @@ func NewRouter(d Deps) http.Handler {
 	// Downloads (yt-dlp → Google Drive)
 	if d.Downloads != nil {
 		dh := &DownloadHandlers{
-			Auth:          d.Auth,
-			Store:         d.Downloads,
+			Auth:  d.Auth,
+			Store: d.Downloads,
 			YtDlp: download.YtDlpConfig{
 				BinPath:    d.Config.YtDlpPath,
-				Proxy:       d.Config.DownloadProxy,
+				Proxy:      d.Config.DownloadProxy,
 				CookiePath: d.Config.DownloadCookiePath,
-				TmpDir:      d.Config.DownloadTmpDir,
+				TmpDir:     d.Config.DownloadTmpDir,
 			},
 			DefaultFolder: d.Config.RootFolderID,
 		}
@@ -91,6 +91,8 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /api/downloads", RequireSession(d.Auth, http.HandlerFunc(dh.List)))
 		mux.Handle("DELETE /api/downloads", RequireSession(d.Auth, http.HandlerFunc(dh.ClearFinished)))
 		mux.Handle("GET /api/downloads/{id}", RequireSession(d.Auth, http.HandlerFunc(dh.Status)))
+		mux.Handle("POST /api/downloads/{id}/pause", RequireSession(d.Auth, http.HandlerFunc(dh.Pause)))
+		mux.Handle("POST /api/downloads/{id}/resume", RequireSession(d.Auth, http.HandlerFunc(dh.Resume)))
 		mux.Handle("POST /api/downloads/{id}/cancel", RequireSession(d.Auth, http.HandlerFunc(dh.Cancel)))
 		mux.Handle("POST /api/downloads/{id}/retry-upload", RequireSession(d.Auth, http.HandlerFunc(dh.RetryUpload)))
 		mux.Handle("DELETE /api/downloads/{id}", RequireSession(d.Auth, http.HandlerFunc(dh.Delete)))
@@ -150,13 +152,13 @@ func NewRouter(d Deps) http.Handler {
 	// Downloads (programmatic API).
 	if d.Downloads != nil {
 		dh := &DownloadHandlers{
-			Auth:          d.Auth,
-			Store:         d.Downloads,
+			Auth:  d.Auth,
+			Store: d.Downloads,
 			YtDlp: download.YtDlpConfig{
 				BinPath:    d.Config.YtDlpPath,
-				Proxy:       d.Config.DownloadProxy,
+				Proxy:      d.Config.DownloadProxy,
 				CookiePath: d.Config.DownloadCookiePath,
-				TmpDir:      d.Config.DownloadTmpDir,
+				TmpDir:     d.Config.DownloadTmpDir,
 			},
 			DefaultFolder: d.Config.RootFolderID,
 		}
@@ -164,6 +166,8 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("GET /api/v1/downloads", guard(rd, http.HandlerFunc(dh.List)))
 		mux.Handle("DELETE /api/v1/downloads", guard(rw, http.HandlerFunc(dh.ClearFinished)))
 		mux.Handle("GET /api/v1/downloads/{id}", guard(rd, http.HandlerFunc(dh.Status)))
+		mux.Handle("POST /api/v1/downloads/{id}/pause", guard(rw, http.HandlerFunc(dh.Pause)))
+		mux.Handle("POST /api/v1/downloads/{id}/resume", guard(rw, http.HandlerFunc(dh.Resume)))
 		mux.Handle("POST /api/v1/downloads/{id}/cancel", guard(rw, http.HandlerFunc(dh.Cancel)))
 		mux.Handle("POST /api/v1/downloads/{id}/retry-upload", guard(rw, http.HandlerFunc(dh.RetryUpload)))
 		mux.Handle("DELETE /api/v1/downloads/{id}", guard(rw, http.HandlerFunc(dh.Delete)))

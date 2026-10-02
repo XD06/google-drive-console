@@ -7,7 +7,7 @@ import (
 
 // proxyRule defines whether a domain should use a proxy.
 type proxyRule struct {
-	suffix string
+	suffix   string
 	useProxy bool
 }
 
@@ -17,21 +17,21 @@ type proxyRule struct {
 var noProxyDomains = []string{
 	// --- video platforms ---
 	"bilibili.com",
-	"b23.tv",           // B站短链
+	"b23.tv", // B站短链
 	"bilivideo.com",
-	"v.douyin.com",     // 抖音短链
+	"v.douyin.com", // 抖音短链
 	"douyin.com",
 	"iesdouyin.com",
 	"xiaohongshu.com",
-	"xhslink.com",      // 小红书短链
+	"xhslink.com", // 小红书短链
 	"kuaishou.com",
 	"gifshow.com",
-	"weixin.qq.com",    // 微信视频号
+	"weixin.qq.com", // 微信视频号
 	"weixinbridge.com",
-	"ixigua.com",       // 西瓜视频
+	"ixigua.com", // 西瓜视频
 
 	// --- file hosting / direct links typically on CN servers ---
-	"yqrii5.org",       // Anna's Archive mirror (CN accessible)
+	"yqrii5.org", // Anna's Archive mirror (CN accessible)
 	"annas-archive.org",
 	"z-lib.gs",
 	"zlibraryglobal.com",
@@ -41,7 +41,7 @@ var noProxyDomains = []string{
 	"aliyuncs.com",
 	"myqcloud.com",
 	"bdstatic.com",
-	"hdslb.com",        // B站 CDN
+	"hdslb.com", // B站 CDN
 }
 
 // ShouldUseProxy decides whether to route a URL through the proxy based on

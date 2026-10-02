@@ -94,3 +94,37 @@ func (s *Store) DeleteOlderThan(maxAge time.Duration) int {
 	}
 	return n
 }
+
+// DeleteExpired removes terminal jobs past their per-status TTL: completed
+// jobs (the URL→Drive dedupe cache) after doneTTL, failed/cancelled after
+// otherTTL. Non-terminal jobs — including paused ones — are never touched.
+func (s *Store) DeleteExpired(doneTTL, otherTTL time.Duration) int {
+	if doneTTL <= 0 || otherTTL <= 0 {
+		return 0
+	}
+	doneCutoff := time.Now().UTC().Add(-doneTTL)
+	otherCutoff := time.Now().UTC().Add(-otherTTL)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, j := range s.jobs {
+		j.mu.RLock()
+		status := j.Status
+		updated := j.UpdatedAt
+		j.mu.RUnlock()
+		var cutoff time.Time
+		switch status {
+		case StatusCompleted:
+			cutoff = doneCutoff
+		case StatusFailed, StatusCancelled:
+			cutoff = otherCutoff
+		default:
+			continue
+		}
+		if !updated.After(cutoff) {
+			delete(s.jobs, id)
+			n++
+		}
+	}
+	return n
+}

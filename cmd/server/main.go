@@ -79,8 +79,9 @@ func main() {
 			log.Fatalf("download tmp dir: %v", err)
 		}
 		downloadStore = download.NewPersistentStore(filepath.Join(cfg.DataDir, "downloads.json"))
-		downloadStore.StartReaper(10*time.Minute, time.Hour)
-		log.Printf("download feature enabled: yt-dlp=%s tmpDir=%s", cfg.YtDlpPath, cfg.DownloadTmpDir)
+		downloadStore.CacheTTL = cfg.DownloadCacheTTL
+		downloadStore.StartReaperTTLs(10*time.Minute, cfg.DownloadCacheTTL, time.Hour)
+		log.Printf("download feature enabled: yt-dlp=%s tmpDir=%s cacheTTL=%s", cfg.YtDlpPath, cfg.DownloadTmpDir, cfg.DownloadCacheTTL)
 		if cfg.DownloadProxy != "" {
 			log.Printf("download proxy: %s", cfg.DownloadProxy)
 		}

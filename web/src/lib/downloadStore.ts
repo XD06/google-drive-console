@@ -17,6 +17,7 @@ export type DownloadStatus =
   | "resolving"
   | "downloading"
   | "uploading"
+  | "paused"
   | "completed"
   | "failed"
   | "cancelled";
@@ -152,12 +153,14 @@ export async function loadDownloads(): Promise<void> {
   emit();
 }
 
-/** Create a new download job. */
+/** Create a new download job. When the same URL is already active or was
+ * completed within the cache TTL the server returns the existing job
+ * (data.dedupe = "active" | "completed") instead of re-downloading. */
 export async function createDownload(url: string, parentId?: string): Promise<DownloadJob | null> {
   try {
     const body: Record<string, string> = { url };
     if (parentId) body.parentId = parentId;
-    const data = await fetchJSON<DownloadJob>("/api/downloads", {
+    const data = await fetchJSON<DownloadJob & { dedupe?: string }>("/api/downloads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -165,6 +168,10 @@ export async function createDownload(url: string, parentId?: string): Promise<Do
     // Optimistic: insert at top so the user sees it immediately.
     if (!jobs.some((j) => j.id === data.id)) {
       jobs = [data, ...jobs];
+      emit();
+    } else if (data.dedupe === "completed") {
+      // Existing finished job — move it to the top so it's visible.
+      jobs = [data, ...jobs.filter((j) => j.id !== data.id)];
       emit();
     }
     // Start polling if not already active.
@@ -178,6 +185,49 @@ export async function createDownload(url: string, parentId?: string): Promise<Do
       sinks.onError?.(msg);
     }
     return null;
+  }
+}
+
+/** Pause an active download. The partial .part file is kept for resume. */
+export async function pauseDownload(id: string): Promise<void> {
+  try {
+    await fetchJSON<{ id: string; status: string }>(
+      `/api/downloads/${encodeURIComponent(id)}/pause`,
+      { method: "POST" },
+    );
+    jobs = jobs.map((j) =>
+      j.id === id
+        ? { ...j, status: "paused" as DownloadStatus, speed: null, eta: null }
+        : j,
+    );
+    emit();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) {
+      sinks.onUnauthorized?.();
+    } else {
+      sinks.onError?.(e instanceof Error ? e.message : "Failed to pause download");
+    }
+  }
+}
+
+/** Resume a paused download — continues from the .part file. */
+export async function resumeDownload(id: string): Promise<void> {
+  try {
+    await fetchJSON<{ id: string; status: string }>(
+      `/api/downloads/${encodeURIComponent(id)}/resume`,
+      { method: "POST" },
+    );
+    jobs = jobs.map((j) =>
+      j.id === id ? { ...j, status: "pending" as DownloadStatus, error: null } : j,
+    );
+    emit();
+    ensurePolling();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) {
+      sinks.onUnauthorized?.();
+    } else {
+      sinks.onError?.(e instanceof Error ? e.message : "Failed to resume download");
+    }
   }
 }
 
@@ -373,6 +423,7 @@ export const STATUS_LABELS: Record<DownloadStatus, string> = {
   resolving: "Resolving",
   downloading: "Downloading",
   uploading: "Uploading",
+  paused: "Paused",
   completed: "Completed",
   failed: "Failed",
   cancelled: "Cancelled",

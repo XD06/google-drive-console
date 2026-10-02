@@ -10,39 +10,40 @@ import (
 type Status string
 
 const (
-	StatusPending    Status = "pending"     // created, not yet started
-	StatusResolving  Status = "resolving"   // yt-dlp is extracting metadata
+	StatusPending     Status = "pending"     // created, not yet started
+	StatusResolving   Status = "resolving"   // yt-dlp is extracting metadata
 	StatusDownloading Status = "downloading" // yt-dlp is downloading the file
-	StatusUploading  Status = "uploading"   // uploading to Google Drive
-	StatusCompleted  Status = "completed"    // file uploaded to Drive
-	StatusFailed     Status = "failed"       // error occurred
-	StatusCancelled  Status = "cancelled"    // user cancelled
+	StatusUploading   Status = "uploading"   // uploading to Google Drive
+	StatusPaused      Status = "paused"      // user paused; .part file kept for resume
+	StatusCompleted   Status = "completed"   // file uploaded to Drive
+	StatusFailed      Status = "failed"      // error occurred
+	StatusCancelled   Status = "cancelled"   // user cancelled
 )
 
 // Job is a download task tracked by the server.
 type Job struct {
 	mu sync.RWMutex // protects all mutable fields below
 
-	ID         string    `json:"id"`
-	URL        string    `json:"url"`
-	ParentID   string    `json:"parentId,omitempty"` // Google Drive destination folder
-	Status     Status    `json:"status"`
-	Progress   float64   `json:"progress"`   // 0-100
-	Speed      string    `json:"speed"`      // e.g. "1.23MiB/s"
-	ETA        string    `json:"eta"`        // e.g. "00:30"
-	Downloaded int64     `json:"downloaded"` // bytes downloaded
-	Total      int64     `json:"total"`     // total bytes (0 if unknown)
-	Title      string    `json:"title"`     // video/file title from yt-dlp
-	Thumbnail  string    `json:"thumbnail,omitempty"`
-	Extractor  string    `json:"extractor"`  // e.g. "youtube", "douyin", "generic"
-	Uploader   string    `json:"uploader,omitempty"`
-	Duration   int       `json:"duration,omitempty"` // seconds
-	Ext        string    `json:"ext,omitempty"`      // file extension
-	FileName   string    `json:"fileName,omitempty"` // local temp file path
-	DriveFileID string   `json:"driveFileId,omitempty"` // Google Drive file ID after upload
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID          string    `json:"id"`
+	URL         string    `json:"url"`
+	ParentID    string    `json:"parentId,omitempty"` // Google Drive destination folder
+	Status      Status    `json:"status"`
+	Progress    float64   `json:"progress"`   // 0-100
+	Speed       string    `json:"speed"`      // e.g. "1.23MiB/s"
+	ETA         string    `json:"eta"`        // e.g. "00:30"
+	Downloaded  int64     `json:"downloaded"` // bytes downloaded
+	Total       int64     `json:"total"`      // total bytes (0 if unknown)
+	Title       string    `json:"title"`      // video/file title from yt-dlp
+	Thumbnail   string    `json:"thumbnail,omitempty"`
+	Extractor   string    `json:"extractor"` // e.g. "youtube", "douyin", "generic"
+	Uploader    string    `json:"uploader,omitempty"`
+	Duration    int       `json:"duration,omitempty"`    // seconds
+	Ext         string    `json:"ext,omitempty"`         // file extension
+	FileName    string    `json:"fileName,omitempty"`    // local temp file path
+	DriveFileID string    `json:"driveFileId,omitempty"` // Google Drive file ID after upload
+	Error       string    `json:"error,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 
 	// internal fields (not serialized)
 	cancelCh chan struct{}

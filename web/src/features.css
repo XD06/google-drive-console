@@ -2185,6 +2185,16 @@ html[data-theme="dark"] .s-uploading .dl-status-dot { background: #ffd60a; }
 .s-failed .dl-status-dot { background: var(--danger); }
 .s-cancelled { background: var(--surface-2); color: var(--muted); }
 .s-cancelled .dl-status-dot { background: var(--muted); }
+.s-paused {
+  background: rgba(100, 116, 139, 0.14);
+  color: #64748b;
+}
+.s-paused .dl-status-dot { background: #64748b; }
+html[data-theme="dark"] .s-paused {
+  background: rgba(142, 156, 174, 0.16);
+  color: #9aa7b8;
+}
+html[data-theme="dark"] .s-paused .dl-status-dot { background: #9aa7b8; }
 
 @keyframes dl-pulse {
   0%, 100% { opacity: 1; }
@@ -2266,6 +2276,8 @@ html[data-theme="dark"] .s-uploading .dl-status-dot { background: #ffd60a; }
 html[data-theme="dark"] .dl-progress-fill.is-upload { background: #ffd60a; }
 .dl-progress-fill.is-done { background: var(--ok); }
 .dl-progress-fill.is-fail { background: var(--danger); }
+.dl-progress-fill.is-paused { background: #64748b; }
+html[data-theme="dark"] .dl-progress-fill.is-paused { background: #9aa7b8; }
 .dl-progress-pct {
   font-size: 0.72rem;
   font-weight: 600;

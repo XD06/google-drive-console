@@ -208,7 +208,19 @@ Starts a new download job. The server resolves metadata via `yt-dlp --simulate`,
 }
 ```
 
-Statuses: `pending` | `resolving` | `downloading` | `uploading` | `completed` | `failed` | `cancelled`.
+Statuses: `pending` | `resolving` | `downloading` | `uploading` | `paused` | `completed` | `failed` | `cancelled`.
+
+**Dedupe** — submitting a URL that already has an active job (pending/resolving/downloading/uploading/paused) returns **200** with that existing job and `"dedupe": "active"`; a URL completed within `DOWNLOAD_CACHE_TTL` (default `24h`, set in `.env`) returns **200** with the completed job, `"dedupe": "completed"` and its `driveFileId` — no re-download. A fresh job returns **201** without a `dedupe` field.
+
+**Breakpoint resume** — downloads run with yt-dlp `--continue` and keep `<name>.<ext>.part` files. Transient download failures auto-retry up to 3 times resuming the `.part` file; pause/restart works the same way. A job that was active when the server stopped becomes `paused` on startup (not failed) and can be resumed.
+
+### `POST /api/downloads/{id}/pause`
+
+Parks an active job (pending/resolving/downloading only — uploads cannot be paused), kills the yt-dlp subprocess, keeps the `.part` file. → **200** `DownloadJob` with `status: "paused"`.
+
+### `POST /api/downloads/{id}/resume`
+
+Continues a paused job. With known metadata it goes straight back to downloading and yt-dlp resumes the `.part` file; otherwise the full pipeline re-runs. → **202** `DownloadJob`.
 
 ### `GET /api/downloads`
 
@@ -244,7 +256,7 @@ When yt-dlp cannot determine the file type (returns `ext: "unknown_video"`), the
 
 ### `/api/v1/downloads/*`
 
-All download routes are mirrored under `/api/v1` for programmatic access, gated by API key scopes (`read` for list/status, `readwrite` for create/cancel/retry/delete).
+All download routes are mirrored under `/api/v1` for programmatic access, gated by API key scopes (`read` for list/status, `readwrite` for create/pause/resume/cancel/retry/delete).
 
 ---
 
@@ -276,6 +288,7 @@ Stable external contract for AI agents and scripts. Same handlers as the UI API,
   - `DELETE /api/v1/keys/{id}` — revoke.
 - Mirrored file routes: list/search/content/download/permissions/revisions/zip/thumbnail/multi-zip require `read`; create/content-write/mkdir/simple/rename/move/copy/trash/share/unshare/restore/batch require `readwrite`.
 - Uploads: create/chunk/cancel require `readwrite`; status requires `read`.
+- Downloads: list/status require `read`; create/pause/resume/cancel/retry-upload/delete/clear require `readwrite`.
 - `GET /api/v1/overview` requires `read`.
 
 ---

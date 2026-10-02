@@ -362,6 +362,14 @@ export function IconPause(p: IconProps) {
   );
 }
 
+export function IconPlay(p: IconProps) {
+  return (
+    <Base {...p}>
+      <path d="M8 5.5v13a.6.6 0 0 0 .9.5l10.4-6.5a.6.6 0 0 0 0-1L8.9 5a.6.6 0 0 0-.9.5z" fill="currentColor" stroke="none" />
+    </Base>
+  );
+}
+
 export function IconFilter(p: IconProps) {
   return (
     <Base {...p}>

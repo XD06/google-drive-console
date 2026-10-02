@@ -13,10 +13,10 @@ import (
 
 // DownloadHandlers serves download-related endpoints.
 type DownloadHandlers struct {
-	Auth    *auth.Service
-	Store   *download.PersistentStore
-	YtDlp   download.YtDlpConfig
-	Drive   DriveFactory
+	Auth          *auth.Service
+	Store         *download.PersistentStore
+	YtDlp         download.YtDlpConfig
+	Drive         DriveFactory
 	DefaultFolder string
 }
 
@@ -25,7 +25,10 @@ type createDownloadBody struct {
 	ParentID string `json:"parentId"`
 }
 
-// Create handles POST /api/downloads
+// Create handles POST /api/downloads. Creating a job whose URL is already
+// active returns the existing job with "dedupe":"active"; a URL completed
+// within the cache TTL returns it with "dedupe":"completed" (and its
+// driveFileId) instead of re-downloading.
 func (h *DownloadHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
@@ -42,7 +45,7 @@ func (h *DownloadHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
-	job, err := svc.Create(r.Context(), download.CreateInput{
+	job, dedupe, err := svc.Create(r.Context(), download.CreateInput{
 		URL:      body.URL,
 		ParentID: body.ParentID,
 	})
@@ -51,12 +54,21 @@ func (h *DownloadHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := job.View()
-	writeJSON(w, http.StatusCreated, map[string]any{
+	code := http.StatusCreated
+	resp := map[string]any{
 		"id":     v.ID,
 		"url":    v.URL,
 		"status": v.Status,
 		"title":  nullIfEmpty(v.Title),
-	})
+	}
+	if dedupe != "" {
+		code = http.StatusOK
+		resp["dedupe"] = dedupe
+		if v.DriveFileID != "" {
+			resp["driveFileId"] = v.DriveFileID
+		}
+	}
+	writeJSON(w, code, resp)
 }
 
 // Status handles GET /api/downloads/{id}
@@ -105,6 +117,54 @@ func (h *DownloadHandlers) List(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"jobs": result,
+	})
+}
+
+// Pause handles POST /api/downloads/{id}/pause — parks an active job and
+// keeps the .part file for later resume.
+func (h *DownloadHandlers) Pause(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	svc, err := h.service(r)
+	if err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "download_unavailable", err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	job, err := svc.Pause(id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":     job.ID,
+		"status": job.Status,
+	})
+}
+
+// Resume handles POST /api/downloads/{id}/resume — continues a paused job,
+// resuming the yt-dlp .part download where it stopped.
+func (h *DownloadHandlers) Resume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	svc, err := h.service(r)
+	if err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "download_unavailable", err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	job, err := svc.Resume(id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"id":     job.ID,
+		"status": job.Status,
 	})
 }
 

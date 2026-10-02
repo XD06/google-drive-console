@@ -41,12 +41,32 @@ type JobStore interface {
 	List() []JobSnapshot
 }
 
+// DefaultCacheTTL keeps completed-job records (the "already downloaded this
+// URL" cache used for dedupe) for a day unless DOWNLOAD_CACHE_TTL says otherwise.
+const DefaultCacheTTL time.Duration = 24 * time.Hour
+
+// maxDownloadAttempts is how many times the download phase may retry after a
+// transient failure before the job is marked failed. Retries resume from the
+// yt-dlp .part file, so a retry only fetches the missing tail.
+const maxDownloadAttempts = 3
+
 // Service orchestrates download jobs: yt-dlp downloads → upload to Google Drive.
 type Service struct {
-	Store    JobStore
-	Drive    DriveUploader
-	YtDlp    YtDlpConfig
+	Store     JobStore
+	Drive     DriveUploader
+	YtDlp     YtDlpConfig
 	DefParent string // default Drive folder ID when parentId omitted
+	// CacheTTL is how long completed jobs are kept as a URL→DriveFile cache
+	// for dedupe. Zero means DefaultCacheTTL.
+	CacheTTL time.Duration
+}
+
+// cacheTTL returns the effective completed-job retention.
+func (s *Service) cacheTTL() time.Duration {
+	if s.CacheTTL > 0 {
+		return s.CacheTTL
+	}
+	return DefaultCacheTTL
 }
 
 // CreateInput is POST /api/downloads body.
@@ -55,15 +75,19 @@ type CreateInput struct {
 	ParentID string `json:"parentId"`
 }
 
-// Create validates input, creates a job, and starts the download goroutine.
+// Create validates input and either returns an existing job for the same URL
+// (dedupe) or creates a new job and starts the download goroutine.
+// The returned tag is "" when a fresh job was created, "active" when an
+// identical URL is already queued/running/paused, and "completed" when the
+// same URL finished within the cache TTL (caller can reuse job.DriveFileID).
 // The job is returned immediately with status "pending".
-func (s *Service) Create(ctx context.Context, in CreateInput) (*Job, error) {
+func (s *Service) Create(ctx context.Context, in CreateInput) (*Job, string, error) {
 	if s == nil || s.Store == nil {
-		return nil, errors.New("download service not configured")
+		return nil, "", errors.New("download service not configured")
 	}
 	rawURL := strings.TrimSpace(in.URL)
 	if rawURL == "" {
-		return nil, &ValidationError{Message: "url required"}
+		return nil, "", &ValidationError{Message: "url required"}
 	}
 	parent := strings.TrimSpace(in.ParentID)
 	if parent == "" {
@@ -71,6 +95,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Job, error) {
 	}
 	if parent == "" {
 		parent = "root"
+	}
+
+	if existing, tag := s.FindExisting(rawURL); existing != nil {
+		return existing, tag, nil
 	}
 
 	now := time.Now().UTC()
@@ -90,6 +118,101 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Job, error) {
 	// navigates away.
 	go s.run(j.ID)
 
+	return j, "", nil
+}
+
+// FindExisting looks for a job with the same URL: an active job (pending/
+// resolving/downloading/uploading/paused) wins, otherwise a completed job
+// within the cache TTL is returned so callers can reuse its Drive file.
+func (s *Service) FindExisting(rawURL string) (*Job, string) {
+	jobs := s.Store.List()
+	for i := range jobs {
+		snap := jobs[i]
+		if snap.URL != rawURL {
+			continue
+		}
+		switch snap.Status {
+		case StatusPending, StatusResolving, StatusDownloading, StatusUploading, StatusPaused:
+			return s.mustGet(snap.ID), "active"
+		case StatusCompleted:
+			if time.Since(snap.UpdatedAt) <= s.cacheTTL() {
+				return s.mustGet(snap.ID), "completed"
+			}
+		}
+	}
+	return nil, ""
+}
+
+func (s *Service) mustGet(id string) *Job {
+	j, err := s.Store.Get(id)
+	if err != nil {
+		return nil
+	}
+	return j
+}
+
+// Pause stops the yt-dlp subprocess and parks the job in "paused" state,
+// keeping the .part file so Resume continues from where it left off.
+// Pause is only allowed while the job is resolving/downloading (uploads
+// cannot be paused — the Drive resumable session would need persisting).
+func (s *Service) Pause(id string) (*Job, error) {
+	if s == nil || s.Store == nil {
+		return nil, errors.New("download service not configured")
+	}
+	j, err := s.Store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	j.mu.Lock()
+	switch j.Status {
+	case StatusPending, StatusResolving, StatusDownloading:
+		j.Status = StatusPaused
+		j.Speed = ""
+		j.ETA = ""
+		j.UpdatedAt = time.Now().UTC()
+		j.mu.Unlock()
+	default:
+		j.mu.Unlock()
+		return nil, &ValidationError{Message: "cannot pause a job in state " + string(j.Status)}
+	}
+
+	s.Store.Put(j)
+
+	// Killing the subprocess makes Download return; run() sees the paused
+	// status and returns without touching the .part file.
+	if err := j.KillProcess(); err != nil {
+		log.Printf("download pause %s: failed to kill process: %v", id, err)
+	}
+	return j, nil
+}
+
+// Resume continues a paused job. When the resolved metadata is known the job
+// goes straight back to downloading (yt-dlp resumes the .part file); otherwise
+// it restarts the full resolve → download pipeline.
+func (s *Service) Resume(id string) (*Job, error) {
+	if s == nil || s.Store == nil {
+		return nil, errors.New("download service not configured")
+	}
+	j, err := s.Store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	j.mu.Lock()
+	if j.Status != StatusPaused {
+		j.mu.Unlock()
+		return nil, &ValidationError{Message: "job is not paused"}
+	}
+	j.Status = StatusPending
+	j.Error = ""
+	j.UpdatedAt = time.Now().UTC()
+	j.mu.Unlock()
+	s.Store.Put(j)
+
+	if j.Title != "" {
+		go s.runFromDownload(j.ID, metaFromJob(j))
+	} else {
+		go s.run(j.ID)
+	}
 	return j, nil
 }
 
@@ -133,16 +256,17 @@ func (s *Service) Cancel(id string) (*Job, error) {
 	j.mu.Unlock()
 
 	s.Store.Put(j)
-	
+
 	// Kill yt-dlp subprocess if running
 	if err := j.KillProcess(); err != nil {
 		log.Printf("download cancel %s: failed to kill process: %v", id, err)
 	}
-	
+
 	return j, nil
 }
 
-// Delete removes a terminal job from the store and cleans up its local file.
+// Delete removes a terminal job from the store and cleans up its local file
+// (including any yt-dlp .part leftover from a paused/cancelled download).
 // Non-terminal (active) jobs must be cancelled first.
 func (s *Service) Delete(id string) error {
 	if s == nil || s.Store == nil {
@@ -165,9 +289,37 @@ func (s *Service) Delete(id string) error {
 	if filePath != "" {
 		os.Remove(filePath)
 	}
+	s.removePartFile(j)
 
 	s.Store.Delete(id)
 	return nil
+}
+
+// removePartFile deletes the yt-dlp partial download for a job (derived from
+// the output template: tmpDir/<safe title>.<ext>.part), if any. Pause keeps
+// the file — only explicit record removal cleans it up.
+func (s *Service) removePartFile(j *Job) {
+	j.mu.RLock()
+	title, ext, rawURL := j.Title, j.Ext, j.URL
+	j.mu.RUnlock()
+	dir := s.YtDlp.TmpDir
+	if title == "" || dir == "" {
+		return
+	}
+	safe := sanitizeFilename(title)
+	if safe == "" {
+		return
+	}
+	if ext == "" || ext == "unknown_video" {
+		ext = guessExt(rawURL)
+	}
+	os.Remove(filepath.Join(dir, safe+"."+ext+".part"))
+	// yt-dlp merges formats into a different extension sometimes.
+	if leftovers, _ := filepath.Glob(filepath.Join(dir, safe+".*.part")); len(leftovers) > 0 {
+		for _, p := range leftovers {
+			os.Remove(p)
+		}
+	}
 }
 
 // ClearFinished removes all terminal jobs (completed/failed/cancelled) and
@@ -184,6 +336,9 @@ func (s *Service) ClearFinished() int {
 		}
 		if snap.FileName != "" {
 			os.Remove(snap.FileName)
+		}
+		if j := s.mustGet(snap.ID); j != nil {
+			s.removePartFile(j)
 		}
 		s.Store.Delete(snap.ID)
 		count++
@@ -283,7 +438,7 @@ func (s *Service) run(jobID string) {
 	}
 
 	// Check cancellation before starting.
-	if isCancelled(j) {
+	if isCancelled(j) || isPaused(j) {
 		return
 	}
 
@@ -305,8 +460,15 @@ func (s *Service) run(jobID string) {
 
 	meta, err := ResolveMetadata(dlCtx, s.YtDlp, j.URL)
 	if err != nil {
+		if isPaused(j) {
+			return
+		}
 		j.setError(err.Error())
 		s.Store.Put(j)
+		return
+	}
+
+	if isCancelled(j) || isPaused(j) {
 		return
 	}
 
@@ -329,35 +491,84 @@ func (s *Service) run(jobID string) {
 	j.mu.Unlock()
 	s.Store.Put(j)
 
-	if isCancelled(j) {
+	s.runFromDownload(jobID, meta)
+}
+
+// runFromDownload continues a job from the download phase with known metadata.
+// Transient download failures are retried (yt-dlp resumes the .part file each
+// attempt); pause/cancel aborts immediately. On success the file is uploaded
+// to Drive and cleaned up.
+func (s *Service) runFromDownload(jobID string, meta metaInfo) {
+	j, err := s.Store.Get(jobID)
+	if err != nil {
 		return
 	}
 
-	// Phase 2: Download via yt-dlp.
+	dlCtx, dlCancel := context.WithCancel(context.Background())
+	defer dlCancel()
+
+	// Wire job cancellation to context cancellation.
+	go func() {
+		select {
+		case <-j.CancelChannel():
+			dlCancel()
+		case <-dlCtx.Done():
+		}
+	}()
+
+	if isCancelled(j) || isPaused(j) {
+		return
+	}
+
+	// Phase 2: Download via yt-dlp (with auto-retry, resuming the .part file).
 	j.setStatus(StatusDownloading)
 	s.Store.Put(j)
 
-	result, err := Download(dlCtx, s.YtDlp, j.URL, func(proc *os.Process) {
-		j.SetProcess(proc)
-	}, func(pct float64, speed, eta string, downloaded, total int64) {
-		j.setProgress(pct, speed, eta, downloaded, total)
-		s.Store.Put(j)
-	})
-	if err != nil {
+	var result *DownloadResult
+	var dlErr error
+	for attempt := 1; attempt <= maxDownloadAttempts; attempt++ {
+		result, dlErr = DownloadWithMeta(dlCtx, s.YtDlp, j.URL, meta, func(proc *os.Process) {
+			j.SetProcess(proc)
+		}, func(pct float64, speed, eta string, downloaded, total int64) {
+			j.setProgress(pct, speed, eta, downloaded, total)
+			s.Store.Put(j)
+		})
+		if dlErr == nil {
+			break
+		}
+		// Pause/cancel means the user owns the stop — never auto-retry.
+		if isCancelled(j) || isPaused(j) || dlCtx.Err() != nil {
+			break
+		}
+		if attempt < maxDownloadAttempts {
+			log.Printf("download job %s: attempt %d failed (%v) — retrying from .part", jobID, attempt, dlErr)
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	if dlErr != nil {
+		if isPaused(j) {
+			// .part file stays on disk for Resume.
+			return
+		}
 		if isCancelled(j) {
 			j.setStatus(StatusCancelled)
 		} else {
-			j.setError(err.Error())
+			j.setError(dlErr.Error())
 		}
 		s.Store.Put(j)
 		return
 	}
 
-	if isCancelled(j) {
-		// Clean up downloaded file.
-		os.Remove(result.FilePath)
-		j.setStatus(StatusCancelled)
-		s.Store.Put(j)
+	if isCancelled(j) || isPaused(j) {
+		// Keep a finished file? Only cancel cleans it up; a paused job that
+		// raced a finish keeps the file — Resume will detect it complete via
+		// yt-dlp (--continue no-ops) or the upload retry path.
+		if isCancelled(j) {
+			os.Remove(result.FilePath)
+			j.setStatus(StatusCancelled)
+			s.Store.Put(j)
+		}
 		return
 	}
 
@@ -405,6 +616,22 @@ func (s *Service) run(jobID string) {
 	// Clean up temp file.
 	os.Remove(result.FilePath)
 	log.Printf("download job %s completed: %s → drive file %s", jobID, j.Title, fileID)
+}
+
+// metaFromJob reconstructs the yt-dlp metadata snapshot from persisted job
+// fields — enough for DownloadWithMeta (title/ext template) and uploadToDrive.
+func metaFromJob(j *Job) metaInfo {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return metaInfo{
+		Title:     j.Title,
+		Ext:       j.Ext,
+		Thumbnail: j.Thumbnail,
+		Extractor: j.Extractor,
+		Uploader:  j.Uploader,
+		Duration:  float64(j.Duration),
+		Filesize:  j.Total,
+	}
 }
 
 // uploadToDrive uploads the downloaded file to Google Drive.
@@ -622,6 +849,12 @@ func isCancelled(j *Job) bool {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	return j.Status == StatusCancelled
+}
+
+func isPaused(j *Job) bool {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.Status == StatusPaused
 }
 
 // guessMimeType returns a MIME type for common file extensions.

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds process configuration loaded from the environment.
@@ -42,6 +43,9 @@ type Config struct {
 	DownloadProxy      string
 	DownloadCookiePath string
 	DownloadTmpDir     string
+	// DownloadCacheTTL is how long completed download jobs are kept as a
+	// URL→Drive dedupe cache. Default 24h.
+	DownloadCacheTTL time.Duration
 }
 
 // Load reads configuration from environment variables.
@@ -65,6 +69,7 @@ func Load() (Config, error) {
 		DownloadCookiePath: envString("DOWNLOAD_COOKIE_PATH", ""),
 		DownloadTmpDir:     envString("DOWNLOAD_TMP_DIR", ""),
 	}
+	cfg.DownloadCacheTTL = envDuration("DOWNLOAD_CACHE_TTL", 24*time.Hour)
 	cfg.SecureCookie = envBool("SECURE_COOKIE", !cfg.DevMode)
 	cfg.FrontendOrigin = normalizeFrontendOrigin(cfg.FrontendOrigin)
 
@@ -146,6 +151,20 @@ func envBool(key string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+// envDuration parses a Go duration string (e.g. "24h", "45m"); invalid or
+// non-positive values fall back to def.
+func envDuration(key string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return def
+	}
+	return d
 }
 
 // normalizeFrontendOrigin ensures a usable absolute URL ending with /.

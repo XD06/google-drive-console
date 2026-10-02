@@ -285,12 +285,12 @@ func TestNewID(t *testing.T) {
 
 func TestParseProgressLine(t *testing.T) {
 	tests := []struct {
-		line              string
-		wantPct           float64
-		wantSpeed         string
-		wantETA           string
-		wantDownloaded    int64
-		wantTotal         int64
+		line           string
+		wantPct        float64
+		wantSpeed      string
+		wantETA        string
+		wantDownloaded int64
+		wantTotal      int64
 	}{
 		{
 			"PROGRESS:  50.0%|  1.23MiB/s|00:30|1048576|2097152|2097152",
@@ -323,6 +323,106 @@ func TestParseProgressLine(t *testing.T) {
 			t.Errorf("parseProgressLine(%q) = (%f, %q, %q, %d, %d), want (%f, %q, %q, %d, %d)",
 				tt.line, pct, speed, eta, dl, total,
 				tt.wantPct, tt.wantSpeed, tt.wantETA, tt.wantDownloaded, tt.wantTotal)
+		}
+	}
+}
+
+// ---- Pause/Resume + dedupe + TTL (added with breakpoint-resume feature) ----
+
+func mkTestJob(id, url string, st Status, age time.Duration) *Job {
+	now := time.Now().UTC().Add(-age)
+	return &Job{
+		ID: id, URL: url, Status: st,
+		CreatedAt: now, UpdatedAt: now,
+		cancelCh: make(chan struct{}),
+	}
+}
+
+func TestFindExisting_Dedupe(t *testing.T) {
+	s := NewStore()
+	s.Put(mkTestJob("j1", "https://x/active", StatusDownloading, time.Minute))
+	s.Put(mkTestJob("j2", "https://x/fresh-done", StatusCompleted, 30*time.Minute))
+	s.Put(mkTestJob("j3", "https://x/stale-done", StatusCompleted, 2*time.Hour))
+	s.Put(mkTestJob("j4", "https://x/failed", StatusFailed, time.Minute))
+	s.Put(mkTestJob("j5", "https://x/paused", StatusPaused, time.Minute))
+
+	svc := &Service{Store: s, CacheTTL: time.Hour}
+
+	if j, tag := svc.FindExisting("https://x/active"); j == nil || tag != "active" || j.ID != "j1" {
+		t.Errorf("active dedupe: got (%v, %q)", j, tag)
+	}
+	if j, tag := svc.FindExisting("https://x/paused"); j == nil || tag != "active" {
+		t.Errorf("paused dedupe: got (%v, %q)", j, tag)
+	}
+	if j, tag := svc.FindExisting("https://x/fresh-done"); j == nil || tag != "completed" || j.ID != "j2" {
+		t.Errorf("completed dedupe: got (%v, %q)", j, tag)
+	}
+	if j, _ := svc.FindExisting("https://x/stale-done"); j != nil {
+		t.Errorf("stale completed job should not dedupe, got %v", j)
+	}
+	if j, _ := svc.FindExisting("https://x/failed"); j != nil {
+		t.Errorf("failed job should not dedupe, got %v", j)
+	}
+	if j, _ := svc.FindExisting("https://x/unknown"); j != nil {
+		t.Errorf("unknown URL should not dedupe, got %v", j)
+	}
+}
+
+func TestServicePauseResumeGuards(t *testing.T) {
+	s := NewStore()
+	svc := &Service{Store: s}
+
+	dl := mkTestJob("j1", "https://x/1", StatusDownloading, 0)
+	s.Put(dl)
+
+	j, err := svc.Pause("j1")
+	if err != nil || j.Status != StatusPaused {
+		t.Fatalf("pause downloading: status=%s err=%v", j.Status, err)
+	}
+
+	// Pausing an already-paused job is rejected (it is no longer active).
+	if _, err := svc.Pause("j1"); err == nil {
+		t.Error("pause on paused job should fail")
+	}
+
+	// Resume flips it back to pending and (with no yt-dlp binary) the
+	// background goroutine will fail the job afterwards — the synchronous
+	// transition is what we assert.
+	jr, err := svc.Resume("j1")
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if jr.Status == StatusPaused {
+		t.Error("resume left job paused")
+	}
+
+	done := mkTestJob("j2", "https://x/2", StatusCompleted, 0)
+	s.Put(done)
+	if _, err := svc.Pause("j2"); err == nil {
+		t.Error("pause on completed job should fail")
+	}
+	if _, err := svc.Resume("j2"); err == nil {
+		t.Error("resume on completed job should fail")
+	}
+}
+
+func TestStoreDeleteExpired(t *testing.T) {
+	s := NewStore()
+	s.Put(mkTestJob("done-old", "u1", StatusCompleted, 2*time.Hour))
+	s.Put(mkTestJob("done-new", "u2", StatusCompleted, 30*time.Minute))
+	s.Put(mkTestJob("fail-old", "u3", StatusFailed, 2*time.Hour))
+	s.Put(mkTestJob("fail-new", "u4", StatusFailed, 10*time.Minute))
+	s.Put(mkTestJob("cxl-old", "u5", StatusCancelled, 2*time.Hour))
+	s.Put(mkTestJob("paused", "u6", StatusPaused, 2*time.Hour))
+	s.Put(mkTestJob("downloading", "u7", StatusDownloading, 2*time.Hour))
+
+	n := s.DeleteExpired(time.Hour, 30*time.Minute)
+	if n != 3 {
+		t.Fatalf("DeleteExpired removed %d, want 3 (done-old, fail-old, cxl-old)", n)
+	}
+	for _, id := range []string{"done-new", "fail-new", "paused", "downloading"} {
+		if _, err := s.Get(id); err != nil {
+			t.Errorf("%s was removed but should have been kept", id)
 		}
 	}
 }

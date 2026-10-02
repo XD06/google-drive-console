@@ -11,6 +11,8 @@ import {
   getThumbClass,
   getTypeIcon,
   loadDownloads,
+  pauseDownload,
+  resumeDownload,
   retryUpload,
   type DownloadJob,
   useDownloads,
@@ -21,6 +23,8 @@ import {
   IconDownload,
   IconHistory,
   IconOpen,
+  IconPause,
+  IconPlay,
   IconRefresh,
   IconRename,
   IconStop,
@@ -73,7 +77,8 @@ export function DownloadPage({ onOpenInDrive, onRename }: DownloadPageProps) {
   }, []);
 
   const activeJobs = useMemo(
-    () => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)),
+    // Paused jobs stay visible on the main view so the user can resume them.
+    () => jobs.filter((j) => ACTIVE_STATUSES.includes(j.status) || j.status === "paused"),
     [jobs],
   );
 
@@ -328,11 +333,13 @@ function DownloadCard({
   const fillClass =
     job.status === "uploading"
       ? "is-upload"
-      : job.status === "completed"
-        ? "is-done"
-        : job.status === "failed" || job.status === "cancelled"
-          ? "is-fail"
-          : "";
+      : job.status === "paused"
+        ? "is-paused"
+        : job.status === "completed"
+          ? "is-done"
+          : job.status === "failed" || job.status === "cancelled"
+            ? "is-fail"
+            : "";
 
   const thumbClass = getThumbClass(job.extractor, job.ext);
   const typeIcon = getTypeIcon(job.extractor);
@@ -400,6 +407,17 @@ function DownloadCard({
         {isActive && (
           <button
             type="button"
+            className="dl-action-btn"
+            title="Pause"
+            aria-label="Pause download"
+            onClick={() => void pauseDownload(job.id)}
+          >
+            <IconPause size={15} />
+          </button>
+        )}
+        {isActive && (
+          <button
+            type="button"
             className="dl-action-btn is-danger"
             title="Cancel"
             aria-label="Cancel download"
@@ -407,6 +425,28 @@ function DownloadCard({
           >
             <IconStop size={15} />
           </button>
+        )}
+        {job.status === "paused" && (
+          <>
+            <button
+              type="button"
+              className="dl-action-btn"
+              title="Resume"
+              aria-label="Resume download"
+              onClick={() => void resumeDownload(job.id)}
+            >
+              <IconPlay size={15} />
+            </button>
+            <button
+              type="button"
+              className="dl-action-btn is-danger"
+              title="Cancel"
+              aria-label="Cancel download"
+              onClick={() => void cancelDownload(job.id)}
+            >
+              <IconStop size={15} />
+            </button>
+          </>
         )}
         {job.status === "completed" && job.driveFileId && (
           <>

@@ -10,7 +10,9 @@
   "tags": [
     { "name": "files", "description": "Browse and manipulate Drive files and folders" },
     { "name": "keys", "description": "Manage API keys (session-only; keys cannot manage keys)" },
-    { "name": "meta", "description": "Discovery and account overview" }
+    { "name": "meta", "description": "Discovery and account overview" },
+    { "name": "uploads", "description": "Resumable chunked uploads into Drive" },
+    { "name": "downloads", "description": "yt-dlp URL downloads: background jobs with pause/resume, auto-retry, dedupe cache and progress query" }
   ],
   "paths": {
     "/openapi.json": {
@@ -149,6 +151,112 @@
         "parameters": [{ "$ref": "#/components/parameters/PathId" }],
         "responses": { "200": { "description": "Revisions" }, "404": { "$ref": "#/components/responses/NotFound" } }
       }
+    },
+    "/uploads": {
+      "post": {
+        "tags": ["uploads"], "summary": "Start a resumable upload session", "operationId": "createUpload",
+        "x-required-scope": "readwrite",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "size"], "properties": { "name": { "type": "string" }, "size": { "type": "integer" }, "parentId": { "type": "string" }, "mimeType": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Session created; send chunks to the returned URL", "content": { "application/json": { "schema": { "type": "object", "properties": { "uploadId": { "type": "string" }, "status": { "type": "string" }, "total": { "type": "integer" }, "chunkSize": { "type": "integer" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/uploads/{id}": {
+      "get": {
+        "tags": ["uploads"], "summary": "Query upload progress", "operationId": "uploadStatus",
+        "x-required-scope": "read",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Upload status with sent/total bytes" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/uploads/{id}/chunk": {
+      "put": {
+        "tags": ["uploads"], "summary": "Append a chunk", "operationId": "uploadChunk",
+        "x-required-scope": "readwrite",
+        "description": "Raw bytes as body; optional Content-Range header for resuming at an offset.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Chunk accepted (nextByte / complete)" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/uploads/{id}/cancel": {
+      "post": {
+        "tags": ["uploads"], "summary": "Cancel an upload session", "operationId": "cancelUpload",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cancelled" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/downloads": {
+      "get": {
+        "tags": ["downloads"], "summary": "List download jobs", "operationId": "listDownloads",
+        "x-required-scope": "read",
+        "responses": { "200": { "description": "Jobs (newest first)", "content": { "application/json": { "schema": { "type": "object", "properties": { "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/DownloadJob" } } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      },
+      "post": {
+        "tags": ["downloads"], "summary": "Create a background download", "operationId": "createDownload",
+        "x-required-scope": "readwrite",
+        "description": "The job runs server-side and survives closing the browser. Dedupe: when the same URL is already active the existing job is returned with HTTP 200 and `dedupe: \"active\"`; a URL completed within DOWNLOAD_CACHE_TTL (default 24h) returns `dedupe: \"completed\"` with its `driveFileId` instead of re-downloading.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string" }, "parentId": { "type": "string", "description": "Destination folder id or name; defaults to root" } } } } } },
+        "responses": {
+          "201": { "description": "New job created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "string" }, "url": { "type": "string" }, "status": { "type": "string" }, "title": { "type": ["string", "null"] } } } } } },
+          "200": { "description": "Existing job returned (dedupe)", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "string" }, "url": { "type": "string" }, "status": { "type": "string" }, "title": { "type": ["string", "null"] }, "dedupe": { "type": "string", "enum": ["active", "completed"] }, "driveFileId": { "type": "string" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "delete": {
+        "tags": ["downloads"], "summary": "Clear all terminal jobs", "operationId": "clearDownloads",
+        "x-required-scope": "readwrite",
+        "responses": { "200": { "description": "Cleared" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/downloads/{id}": {
+      "get": {
+        "tags": ["downloads"], "summary": "Query download progress", "operationId": "downloadStatus",
+        "x-required-scope": "read",
+        "description": "Poll this while the job is pending/resolving/downloading/uploading. Status flow: pending → resolving → downloading → uploading → completed; paused and failed are side states.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Job", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DownloadJob" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["downloads"], "summary": "Delete a terminal job record", "operationId": "deleteDownload",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Deleted" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/downloads/{id}/pause": {
+      "post": {
+        "tags": ["downloads"], "summary": "Pause a job", "operationId": "pauseDownload",
+        "x-required-scope": "readwrite",
+        "description": "Kills the yt-dlp subprocess and keeps the .part file. Allowed while pending/resolving/downloading; uploads cannot be paused.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Paused" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/downloads/{id}/resume": {
+      "post": {
+        "tags": ["downloads"], "summary": "Resume a paused job", "operationId": "resumeDownload",
+        "x-required-scope": "readwrite",
+        "description": "Continues from the .part file — only the missing tail is fetched.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "202": { "description": "Resuming" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/downloads/{id}/cancel": {
+      "post": {
+        "tags": ["downloads"], "summary": "Cancel a job", "operationId": "cancelDownload",
+        "x-required-scope": "readwrite",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Cancelled" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/downloads/{id}/retry-upload": {
+      "post": {
+        "tags": ["downloads"], "summary": "Retry only the Drive upload of a failed job", "operationId": "retryDownloadUpload",
+        "x-required-scope": "readwrite",
+        "description": "Reuses the already-downloaded local file; no re-download.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "202": { "description": "Retrying" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
     }
   },
   "components": {
@@ -200,6 +308,31 @@
           { "$ref": "#/components/schemas/Key" },
           { "type": "object", "properties": { "token": { "type": "string", "description": "Plaintext token, shown once" } } }
         ]
+      },
+      "DownloadJob": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "url": { "type": "string" },
+          "parentId": { "type": ["string", "null"] },
+          "status": { "type": "string", "enum": ["pending", "resolving", "downloading", "uploading", "paused", "completed", "failed", "cancelled"] },
+          "progress": { "type": "number", "description": "0-100" },
+          "speed": { "type": ["string", "null"] },
+          "eta": { "type": ["string", "null"] },
+          "downloaded": { "type": "integer" },
+          "total": { "type": "integer" },
+          "title": { "type": ["string", "null"] },
+          "thumbnail": { "type": ["string", "null"] },
+          "extractor": { "type": ["string", "null"] },
+          "uploader": { "type": ["string", "null"] },
+          "duration": { "type": "integer" },
+          "ext": { "type": ["string", "null"] },
+          "fileName": { "type": ["string", "null"], "description": "Local temp file path (set when download finished but upload failed — retry-upload can reuse it)" },
+          "driveFileId": { "type": ["string", "null"], "description": "Set once completed — the Drive file produced by this job" },
+          "error": { "type": ["string", "null"] },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        }
       }
     },
     "responses": {

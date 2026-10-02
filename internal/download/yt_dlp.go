@@ -17,10 +17,10 @@ import (
 
 // YtDlpConfig holds the runtime configuration for yt-dlp invocations.
 type YtDlpConfig struct {
-	BinPath     string // path to yt-dlp executable
-	Proxy       string // socks5://127.0.0.1:10808 or empty
-	CookiePath  string // path to Netscape cookie file or empty
-	TmpDir      string // directory for downloaded temp files
+	BinPath    string // path to yt-dlp executable
+	Proxy      string // socks5://127.0.0.1:10808 or empty
+	CookiePath string // path to Netscape cookie file or empty
+	TmpDir     string // directory for downloaded temp files
 }
 
 // progressLine matches "PROGRESS:  0.1%|  39.33KiB/s|01:25|3072|3433755"
@@ -28,17 +28,17 @@ var progressRe = regexp.MustCompile(`^PROGRESS:\s*([\d.]+)%\|([^|]*)\|([^|]*)\|(
 
 // metaInfo is the subset of yt-dlp -j output we care about.
 type metaInfo struct {
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	Ext           string  `json:"ext"`
-	Duration      float64 `json:"duration"`
-	Filesize      int64   `json:"filesize"`
-	FilesizeApprox int64  `json:"filesize_approx"`
-	Resolution    string  `json:"resolution"`
-	Thumbnail     string  `json:"thumbnail"`
-	Uploader      string  `json:"uploader"`
-	WebpageURL    string  `json:"webpage_url"`
-	Extractor     string  `json:"extractor"`
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Ext            string  `json:"ext"`
+	Duration       float64 `json:"duration"`
+	Filesize       int64   `json:"filesize"`
+	FilesizeApprox int64   `json:"filesize_approx"`
+	Resolution     string  `json:"resolution"`
+	Thumbnail      string  `json:"thumbnail"`
+	Uploader       string  `json:"uploader"`
+	WebpageURL     string  `json:"webpage_url"`
+	Extractor      string  `json:"extractor"`
 }
 
 // ResolveMetadata runs yt-dlp --simulate -j to extract metadata without downloading.
@@ -91,12 +91,23 @@ type DownloadResult struct {
 // onProcessStarted is called once with the process handle so it can be tracked
 // for graceful shutdown.
 func Download(ctx context.Context, cfg YtDlpConfig, rawURL string, onProcessStarted func(*os.Process), onProgress func(pct float64, speed, eta string, downloaded, total int64)) (*DownloadResult, error) {
-	// First, resolve metadata so we know the title/ext for the output template.
 	meta, err := ResolveMetadata(ctx, cfg, rawURL)
 	if err != nil {
 		return nil, err
 	}
+	res, err := DownloadWithMeta(ctx, cfg, rawURL, meta, onProcessStarted, onProgress)
+	if err != nil {
+		return nil, err
+	}
+	res.Meta = meta
+	return res, nil
+}
 
+// DownloadWithMeta is Download with caller-supplied metadata (from an earlier
+// ResolveMetadata call), skipping the second metadata round-trip. yt-dlp
+// resumes an existing <title>.<ext>.part file automatically, so callers use
+// the same meta to get .part resume (breakpoint continuation) for free.
+func DownloadWithMeta(ctx context.Context, cfg YtDlpConfig, rawURL string, meta metaInfo, onProcessStarted func(*os.Process), onProgress func(pct float64, speed, eta string, downloaded, total int64)) (*DownloadResult, error) {
 	// Build output template: tmpDir/title.ext
 	// Sanitize title for filesystem safety.
 	safeTitle := sanitizeFilename(meta.Title)
@@ -125,7 +136,11 @@ func Download(ctx context.Context, cfg YtDlpConfig, rawURL string, onProcessStar
 		"--newline",
 		"--progress-template", "PROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress._total_bytes_estimate)s|%(progress._total_bytes)s",
 		"--no-playlist",
-		"--no-part",
+		// Keep partial downloads as <name>.<ext>.part so a killed process
+		// (pause/cancel-and-resume/retry) can continue where it left off.
+		"--continue",
+		"--retries", "10",
+		"--fragment-retries", "10",
 		"-o", outTemplate,
 	)
 

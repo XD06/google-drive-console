@@ -19,6 +19,26 @@ type PersistentStore struct {
 	dirty    bool
 	reaperCh chan struct{}
 	reaperWg sync.WaitGroup
+
+	// CacheTTL keeps completed jobs (URL→Drive dedupe cache) this long.
+	// Zero means DefaultCacheTTL.
+	CacheTTL time.Duration
+	// TerminalTTL keeps failed/cancelled jobs this long. Zero means 1h.
+	TerminalTTL time.Duration
+}
+
+func (ps *PersistentStore) cacheTTL() time.Duration {
+	if ps.CacheTTL > 0 {
+		return ps.CacheTTL
+	}
+	return DefaultCacheTTL
+}
+
+func (ps *PersistentStore) terminalTTL() time.Duration {
+	if ps.TerminalTTL > 0 {
+		return ps.TerminalTTL
+	}
+	return time.Hour
 }
 
 // NewPersistentStore creates a store that persists to the given file path.
@@ -43,9 +63,11 @@ func (ps *PersistentStore) Delete(id string) {
 	ps.scheduleSave()
 }
 
-// DeleteOlderThan removes terminal jobs older than maxAge.
-func (ps *PersistentStore) DeleteOlderThan(maxAge time.Duration) int {
-	n := ps.Store.DeleteOlderThan(maxAge)
+// DeleteExpired removes terminal jobs past their per-status TTL: completed
+// jobs live for the cache TTL (URL dedupe cache), failed/cancelled jobs for
+// the shorter terminal TTL.
+func (ps *PersistentStore) DeleteExpired() int {
+	n := ps.Store.DeleteExpired(ps.cacheTTL(), ps.terminalTTL())
 	if n > 0 {
 		ps.scheduleSave()
 	}
@@ -53,8 +75,15 @@ func (ps *PersistentStore) DeleteOlderThan(maxAge time.Duration) int {
 }
 
 // StartReaper periodically deletes terminal jobs older than maxAge.
+// Deprecated: prefer StartReaperTTLs, which applies the per-status TTLs.
 func (ps *PersistentStore) StartReaper(interval, maxAge time.Duration) {
-	if interval <= 0 || maxAge <= 0 {
+	ps.StartReaperTTLs(interval, maxAge, maxAge)
+}
+
+// StartReaperTTLs periodically deletes expired terminal jobs: completed older
+// than doneTTL, failed/cancelled older than otherTTL.
+func (ps *PersistentStore) StartReaperTTLs(interval, doneTTL, otherTTL time.Duration) {
+	if interval <= 0 || doneTTL <= 0 || otherTTL <= 0 {
 		return
 	}
 	ps.mu.Lock()
@@ -66,20 +95,23 @@ func (ps *PersistentStore) StartReaper(interval, maxAge time.Duration) {
 	ch := ps.reaperCh
 	ps.mu.Unlock()
 
+	reap := func() {
+		if n := ps.Store.DeleteExpired(doneTTL, otherTTL); n > 0 {
+			ps.scheduleSave()
+			log.Printf("download reaper: removed %d terminal jobs (done>%s, other>%s)", n, doneTTL, otherTTL)
+		}
+	}
+
 	ps.reaperWg.Add(1)
 	go func() {
 		defer ps.reaperWg.Done()
-		if n := ps.DeleteOlderThan(maxAge); n > 0 {
-			log.Printf("download reaper: removed %d terminal jobs older than %s", n, maxAge)
-		}
+		reap()
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
 			select {
 			case <-t.C:
-				if n := ps.DeleteOlderThan(maxAge); n > 0 {
-					log.Printf("download reaper: removed %d terminal jobs older than %s", n, maxAge)
-				}
+				reap()
 			case <-ch:
 				return
 			}
@@ -256,17 +288,27 @@ func (ps *PersistentStore) loadFromDisk() {
 			cancelCh:    make(chan struct{}),
 		}
 
-		// Jobs that were active when the server stopped are now failed.
+		// Jobs that were active when the server stopped become paused: the
+		// yt-dlp .part file (when there was one) survives on disk, so Resume
+		// can pick up where the restart interrupted them.
 		if j.Status == StatusPending || j.Status == StatusResolving ||
 			j.Status == StatusDownloading || j.Status == StatusUploading {
-			j.Status = StatusFailed
-			j.Error = "server restarted during download"
+			j.Status = StatusPaused
+			j.Speed = ""
+			j.ETA = ""
 			j.UpdatedAt = now
 		}
 
-		// Skip old terminal jobs (> 24 hours).
-		if isTerminal(j.Status) && now.Sub(j.UpdatedAt) > 24*time.Hour {
-			continue
+		// Drop stale terminal jobs: completed past the cache TTL, failed/
+		// cancelled past the terminal TTL.
+		if isTerminal(j.Status) {
+			ttl := ps.terminalTTL()
+			if j.Status == StatusCompleted {
+				ttl = ps.cacheTTL()
+			}
+			if now.Sub(j.UpdatedAt) > ttl {
+				continue
+			}
 		}
 
 		ps.Store.Put(j)
