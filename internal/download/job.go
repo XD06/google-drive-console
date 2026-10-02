@@ -1,6 +1,7 @@
 package download
 
 import (
+	"os"
 	"sync"
 	"time"
 )
@@ -46,6 +47,7 @@ type Job struct {
 	// internal fields (not serialized)
 	cancelCh chan struct{}
 	process  *os.Process // yt-dlp subprocess, killed on cancel
+}
 
 // JobSnapshot is a lock-free, JSON-safe copy of a Job's public fields.
 // It is returned by View() and used everywhere we need to pass job data
