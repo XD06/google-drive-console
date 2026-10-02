@@ -37,7 +37,8 @@ RUN apk add --no-cache \
     yt-dlp \
     ffmpeg \
     tzdata \
-    && addgroup -S app && adduser -S app -G app
+    && addgroup -S app && adduser -S app -G app \
+    && mkdir -p /data && chown app:app /data
 
 # Copy binaries
 COPY --from=backend /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
