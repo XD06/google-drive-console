@@ -878,6 +878,40 @@ export async function unshareFile(id: string, permissionId: string): Promise<voi
   if (!res.ok) throw await parseError(res, "unshare_file");
 }
 
+// ---- Direct links (backend-proxied, revocable /d/{token} URLs) ----
+
+export type DirectLink = {
+  token: string;
+  url: string;
+  fileId: string;
+  name?: string;
+  createdAt: string;
+};
+
+export async function createDirectLink(id: string): Promise<DirectLink> {
+  const res = await fetch(`/api/files/${encodeURIComponent(id)}/link`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res, "create_link");
+  return res.json() as Promise<DirectLink>;
+}
+
+export async function listDirectLinks(id: string): Promise<DirectLink[]> {
+  const res = await fetch(`/api/files/${encodeURIComponent(id)}/links`, { credentials: "include" });
+  if (!res.ok) throw await parseError(res, "list_links");
+  const data = await res.json() as { links: DirectLink[] };
+  return data.links || [];
+}
+
+export async function revokeDirectLink(token: string): Promise<void> {
+  const res = await fetch(`/api/links/${encodeURIComponent(token)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res, "revoke_link");
+}
+
 export type Revision = {
   id: string;
   modifiedTime: string;

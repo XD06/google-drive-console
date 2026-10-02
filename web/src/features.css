@@ -163,6 +163,13 @@ html[data-theme="light"] {
   color: var(--text); font-size: 0.85rem;
 }
 .share-meta { color: var(--muted); font-size: 0.8rem; }
+.share-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.share-subhead { margin: 0; font-size: 0.95rem; }
+.share-meta code {
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 0.75rem;
+}
 
 /* --- Revisions panel --- */
 .revisions-overlay {

@@ -12,7 +12,8 @@
     { "name": "keys", "description": "Manage API keys (session-only; keys cannot manage keys)" },
     { "name": "meta", "description": "Discovery and account overview" },
     { "name": "uploads", "description": "Resumable chunked uploads into Drive" },
-    { "name": "downloads", "description": "yt-dlp URL downloads: background jobs with pause/resume, auto-retry, dedupe cache and progress query" }
+    { "name": "downloads", "description": "yt-dlp URL downloads: background jobs with pause/resume, auto-retry, dedupe cache and progress query" },
+    { "name": "links", "description": "Revocable direct links (/d/{token}) that stream files through this server — no Google login needed" }
   ],
   "paths": {
     "/openapi.json": {
@@ -150,6 +151,39 @@
         "x-required-scope": "read",
         "parameters": [{ "$ref": "#/components/parameters/PathId" }],
         "responses": { "200": { "description": "Revisions" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/files/{id}/link": {
+      "post": {
+        "tags": ["links"], "summary": "Create (or get) a direct link", "operationId": "createLink",
+        "x-required-scope": "readwrite",
+        "description": "Idempotent: one link per file. Returns a public URL `{origin}/d/{token}` that streams the file through this server with Range support (video seeking, resumable fetch). Append `?dl=1` to force a download. Folders cannot be linked.",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "201": { "description": "Direct link", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DirectLink" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/files/{id}/links": {
+      "get": {
+        "tags": ["links"], "summary": "List direct links for a file", "operationId": "listFileLinks",
+        "x-required-scope": "read",
+        "parameters": [{ "$ref": "#/components/parameters/PathId" }],
+        "responses": { "200": { "description": "Links", "content": { "application/json": { "schema": { "type": "object", "properties": { "links": { "type": "array", "items": { "$ref": "#/components/schemas/DirectLink" } } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/links": {
+      "get": {
+        "tags": ["links"], "summary": "List all direct links", "operationId": "listLinks",
+        "x-required-scope": "read",
+        "responses": { "200": { "description": "Links", "content": { "application/json": { "schema": { "type": "object", "properties": { "links": { "type": "array", "items": { "$ref": "#/components/schemas/DirectLink" } } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/links/{token}": {
+      "delete": {
+        "tags": ["links"], "summary": "Revoke a direct link", "operationId": "revokeLink",
+        "x-required-scope": "readwrite",
+        "description": "Idempotent — revoking an unknown token still returns 200 with `revoked: false`. The public URL stops working immediately.",
+        "parameters": [{ "name": "token", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Revocation result" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
       }
     },
     "/uploads": {
@@ -308,6 +342,16 @@
           { "$ref": "#/components/schemas/Key" },
           { "type": "object", "properties": { "token": { "type": "string", "description": "Plaintext token, shown once" } } }
         ]
+      },
+      "DirectLink": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "url": { "type": "string", "description": "Absolute public URL served at the server root: {origin}/d/{token}" },
+          "fileId": { "type": "string" },
+          "name": { "type": "string" },
+          "createdAt": { "type": "string" }
+        }
       },
       "DownloadJob": {
         "type": "object",

@@ -260,6 +260,23 @@ All download routes are mirrored under `/api/v1` for programmatic access, gated 
 
 ---
 
+## Direct links (`/d/{token}`)
+
+Backend-generated direct file links. Unlike Google share URLs (which require a Google session and are rate-limited), a direct link streams the file bytes through this server using the stored OAuth token — works from anywhere, no Google login, supports HTTP **Range** (video seeking, resumable/partial fetches) and conditional GET via md5 `ETag`.
+
+Management (session or API key):
+
+- `POST /api/files/{id}/link` — create (idempotent, one link per file) → **201** `{ "token", "url", "fileId", "name", "createdAt" }` where `url` is `{origin}/d/{token}` (absolute; honors `X-Forwarded-Proto` behind a proxy). Folders → **400** `is_folder`.
+- `GET /api/files/{id}/links` — links for a file → **200** `{ "links": [...] }`.
+- `GET /api/links` — all links → **200** `{ "links": [...] }`.
+- `DELETE /api/links/{token}` — revoke (idempotent) → **200** `{ "revoked": true|false }`. The public URL stops working immediately.
+
+Public streaming (no auth; the 128-bit token is the credential):
+
+- `GET /d/{token}` — `200` full content or `206` with `Content-Range` passthrough. `Content-Disposition: inline` (browsers preview media inline); append `?dl=1` for a forced download. Unknown/revoked token → **404** JSON error. Stored in `DATA_DIR/links.json`.
+
+---
+
 ## Overview
 
 ### `GET /api/overview`
@@ -289,6 +306,7 @@ Stable external contract for AI agents and scripts. Same handlers as the UI API,
 - Mirrored file routes: list/search/content/download/permissions/revisions/zip/thumbnail/multi-zip require `read`; create/content-write/mkdir/simple/rename/move/copy/trash/share/unshare/restore/batch require `readwrite`.
 - Uploads: create/chunk/cancel require `readwrite`; status requires `read`.
 - Downloads: list/status require `read`; create/pause/resume/cancel/retry-upload/delete/clear require `readwrite`.
+- Direct links: `POST /api/v1/files/{id}/link` + `DELETE /api/v1/links/{token}` require `readwrite`; `GET /api/v1/links` and `GET /api/v1/files/{id}/links` require `read`.
 - `GET /api/v1/overview` requires `read`.
 
 ---

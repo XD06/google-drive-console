@@ -19,6 +19,7 @@ import (
 	"github.com/dsk/drive-backup-console/internal/auth"
 	"github.com/dsk/drive-backup-console/internal/config"
 	"github.com/dsk/drive-backup-console/internal/download"
+	"github.com/dsk/drive-backup-console/internal/share"
 	"github.com/dsk/drive-backup-console/internal/upload"
 )
 
@@ -89,12 +90,16 @@ func main() {
 		log.Printf("download feature disabled (set YTDLP_PATH to enable)")
 	}
 
+	// Direct-link store (public /d/{token} file links, revocable).
+	linksStore := share.New(filepath.Join(cfg.DataDir, "links.json"))
+
 	handler := api.NewRouter(api.Deps{
 		Config:    cfg,
 		Auth:      authSvc,
 		Uploads:   uploadSvc,
 		Keys:      apiKeys,
 		Downloads: downloadStore,
+		Links:     linksStore,
 	})
 
 	// Wrap with gzip compression (before logging, so compressed size is logged)

@@ -9,6 +9,7 @@ import (
 	"github.com/dsk/drive-backup-console/internal/auth"
 	"github.com/dsk/drive-backup-console/internal/config"
 	"github.com/dsk/drive-backup-console/internal/download"
+	"github.com/dsk/drive-backup-console/internal/share"
 	"github.com/dsk/drive-backup-console/internal/upload"
 )
 
@@ -19,6 +20,7 @@ type Deps struct {
 	Uploads   *upload.Service           // Store required; Drive may be filled per-request
 	Keys      *apikey.Store             // programmatic API keys for /api/v1 (nil disables key auth)
 	Downloads *download.PersistentStore // nil disables download feature
+	Links     *share.Store              // nil disables direct-link feature
 }
 
 // NewRouter wires HTTP routes.
@@ -171,6 +173,20 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("POST /api/v1/downloads/{id}/cancel", guard(rw, http.HandlerFunc(dh.Cancel)))
 		mux.Handle("POST /api/v1/downloads/{id}/retry-upload", guard(rw, http.HandlerFunc(dh.RetryUpload)))
 		mux.Handle("DELETE /api/v1/downloads/{id}", guard(rw, http.HandlerFunc(dh.Delete)))
+	}
+
+	// Direct links: public /d/{token} streaming + management endpoints.
+	if d.Links != nil {
+		lh := &LinkHandlers{Auth: d.Auth, Links: d.Links}
+		mux.Handle("GET /d/{token}", http.HandlerFunc(lh.Stream))
+		mux.Handle("POST /api/files/{id}/link", RequireSession(d.Auth, BodyLimit(64<<10)(http.HandlerFunc(lh.Create))))
+		mux.Handle("GET /api/files/{id}/links", RequireSession(d.Auth, http.HandlerFunc(lh.ListByFile)))
+		mux.Handle("GET /api/links", RequireSession(d.Auth, http.HandlerFunc(lh.ListAll)))
+		mux.Handle("DELETE /api/links/{token}", RequireSession(d.Auth, http.HandlerFunc(lh.Revoke)))
+		mux.Handle("POST /api/v1/files/{id}/link", guard(rw, BodyLimit(64<<10)(http.HandlerFunc(lh.Create))))
+		mux.Handle("GET /api/v1/files/{id}/links", guard(rd, http.HandlerFunc(lh.ListByFile)))
+		mux.Handle("GET /api/v1/links", guard(rd, http.HandlerFunc(lh.ListAll)))
+		mux.Handle("DELETE /api/v1/links/{token}", guard(rw, http.HandlerFunc(lh.Revoke)))
 	}
 
 	return mux

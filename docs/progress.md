@@ -1,5 +1,18 @@
 # Progress Log
 
+## 2026-10-03 — Round 4: background download control + direct links
+
+**Status:** complete (go test all green; tsc + vitest 60 pass; Chrome MCP smoke below)
+
+- [x] **Download pause/resume (断点接续):** removed yt-dlp `--no-part` in favor of `--continue` (+`--retries 10 --fragment-retries 10`), so partial downloads persist as `.part` files. New `paused` job status; `POST /api/downloads/{id}/pause` kills the subprocess and keeps the part file, `/resume` continues from it (skips re-resolve when metadata is known). Transient download failures auto-retry up to 3× resuming the part file. A job active at server restart becomes `paused` on load (was: failed) and is resumable.
+- [x] **URL dedupe + cache:** `POST /api/downloads` with an already-active URL returns the existing job (200, `dedupe:"active"`); a URL completed within `DOWNLOAD_CACHE_TTL` (new env, default `24h`) returns it with `dedupe:"completed"` + `driveFileId` — no re-download. Completed jobs are now kept by the reaper for the cache TTL (failed/cancelled stay at 1h); `Store.DeleteExpired(doneTTL, otherTTL)` replaces the flat TTL.
+- [x] **Direct links (直链):** new `internal/share` store (`DATA_DIR/links.json`, idempotent one-link-per-file, revocable). `GET /d/{token}` is public — streams file bytes from Drive through the backend with Range/206 passthrough, md5 ETag, `inline` Content-Disposition (`?dl=1` forces download), works without any Google login. Management: `POST /api/files/{id}/link`, `GET /api/files/{id}/links`, `GET /api/links`, `DELETE /api/links/{token}` (also mirrored on `/api/v1` with read/readwrite scopes). ShareDialog now has a "Direct link" section (create/copy/remove).
+- [x] **Agent API docs:** openapi.json previously documented only files/keys/meta — added the full uploads + downloads (incl. pause/resume + dedupe semantics) + links surface with a `DownloadJob` schema and scope annotations.
+- [x] Frontend: pause/resume buttons on download cards (icon-paused state colors), store actions + `paused` status, `IconPlay` added.
+- [x] Verified: new Go tests (dedupe find/pause-resume guards/expiry TTLs; share store CRUD/persistence; link create/stream/Range/revoke via fake Drive upstream) + full suites green; Chrome MCP smoke: direct-link create → fetch `/d/{token}` 200 (bytes + headers) and Range → 206; download job pause → `paused` status shown → resume → progress continues.
+
+---
+
 ## 2026-10-03 — Round 3: no flash on reload, select-all checkbox, batch move
 
 **Status:** complete (tsc + vitest 60 pass; Chrome MCP hands-on incl. real batch move + revert)
