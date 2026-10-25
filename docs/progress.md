@@ -503,3 +503,24 @@ Full-stack bug audit (`docs/archive/2026-07-27-BUG_AUDIT.md`) + architecture not
 
 ### Next
 - Optional: embed SPA in Go; job durability; README port note
+
+---
+
+## 2026-10-26 — Audit fixes: upload job persistence, SW /d/ exclusion, flush serialization, per-job download tmp dirs
+
+**Status:** complete (go test + vitest + tsc all green)
+
+### Done
+- [x] upload: `AppendChunk` persists every state change via `Store.Put` (called strictly after `j.mu` unlock to keep the store.mu → j.mu lock order) — in-flight and completed jobs now survive a crash; regression test reloads a PersistentStore mid-upload and after completion
+- [x] sw.js: fetch filter excludes `/d/{token}` direct links (file bytes never enter Cache Storage — revoked links stay revoked, quota safe); fixed the dead `catch` fallback to `.catch(() => caches.match("/").then((r) => r || caches.match("/index.html")))`
+- [x] upload/download PersistentStore: disk writes serialized by `saveMu` (no concurrent `.tmp` writes), failed flush re-marks dirty and retries after 1s instead of silently dropping changes
+- [x] download: yt-dlp now downloads into `TmpDir/<jobID>/` (`Service.jobCfg`), so concurrent jobs can't adopt each other's files via the largest-media fallback; `Delete` removes the job dir; `removePartFile` tries both the per-job and the legacy flat layout; `PersistentStore.FileCleanup` hook (wired in `cmd/server/main.go`) lets the reaper clean job dirs too
+
+### Verification
+
+| Suite | Result |
+|-------|--------|
+| `go test ./... -count=1` | pass (api, apikey, auth, config, download, drive, share, upload) |
+| `cd web && npm test` | pass (60 tests) |
+| `cd web && npx tsc --noEmit` | clean |
+| `gofmt -l` on touched files | clean |
