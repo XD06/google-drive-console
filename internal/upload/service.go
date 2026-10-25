@@ -184,6 +184,10 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 	sessionURL := j.SessionURL
 	total := j.Total
 	j.mu.Unlock()
+	// Persist the state change. Store.Put must only be called WITHOUT j.mu
+	// held: PersistentStore.saveToDisk locks store.mu → j.mu.RLock, so calling
+	// it under j.mu would invert the lock order and deadlock.
+	s.Store.Put(j)
 
 	// Phase 2: Flush loop — lock only to extract chunk slice, unlock for UploadRange
 	// If another caller is already flushing, skip to avoid concurrent uploads.
@@ -263,6 +267,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			}
 			releaseFlush()
 			j.mu.Unlock()
+			s.Store.Put(j)
 			return nil, err
 		}
 
@@ -287,10 +292,12 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			releaseFlush()
 			j.UpdatedAt = time.Now().UTC()
 			j.mu.Unlock()
+			s.Store.Put(j)
 			return j, nil
 		}
 		j.UpdatedAt = time.Now().UTC()
 		j.mu.Unlock()
+		s.Store.Put(j)
 	}
 
 	// Phase 3: Check if we expected completion but didn't get it.
@@ -310,6 +317,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			j.buffer = nil
 			j.UpdatedAt = time.Now().UTC()
 			j.mu.Unlock()
+			s.Store.Put(j)
 			return j, nil
 		}
 		if qErr == nil && status.NextByte >= total {
@@ -319,6 +327,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			j.buffer = nil
 			j.UpdatedAt = time.Now().UTC()
 			j.mu.Unlock()
+			s.Store.Put(j)
 			return j, nil
 		}
 		if j.Status != StatusCompleted && j.Status != StatusCancelled {
@@ -332,6 +341,7 @@ func (s *Service) AppendChunk(ctx context.Context, id string, offset int64, data
 			j.UpdatedAt = time.Now().UTC()
 			errMsg := j.Error
 			j.mu.Unlock()
+			s.Store.Put(j)
 			return nil, errors.New(errMsg)
 		}
 		j.mu.Unlock()

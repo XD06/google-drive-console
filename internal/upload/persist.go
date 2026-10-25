@@ -17,6 +17,7 @@ type PersistentStore struct {
 	*Store
 	path     string
 	mu       sync.Mutex
+	saveMu   sync.Mutex // serializes disk writes so concurrent flushes can't interleave the .tmp file
 	timer    *time.Timer
 	dirty    bool
 	reaperCh chan struct{}
@@ -126,17 +127,30 @@ func (ps *PersistentStore) scheduleSave() {
 }
 
 // flush writes dirty state to disk.
+// saveMu serializes the actual write so two flushes can never interleave the
+// .tmp file; the write runs outside ps.mu on purpose (saveToDisk takes
+// store.mu → j.mu, which forms no cycle with ps.mu/saveMu).
 func (ps *PersistentStore) flush() {
 	ps.mu.Lock()
+	ps.timer = nil // let scheduleSave re-arm regardless of the outcome below
 	if !ps.dirty {
 		ps.mu.Unlock()
 		return
 	}
 	ps.dirty = false
-	ps.timer = nil
 	ps.mu.Unlock()
 
-	if err := ps.saveToDisk(); err != nil {
+	ps.saveMu.Lock()
+	err := ps.saveToDisk()
+	ps.saveMu.Unlock()
+	if err != nil {
+		// The changes were not written — mark dirty again and retry shortly.
+		ps.mu.Lock()
+		ps.dirty = true
+		if ps.timer == nil {
+			ps.timer = time.AfterFunc(time.Second, ps.flush)
+		}
+		ps.mu.Unlock()
 		log.Printf("persist uploads: %v", err)
 	}
 }
@@ -150,7 +164,10 @@ func (ps *PersistentStore) SaveNow() {
 	}
 	ps.dirty = false
 	ps.mu.Unlock()
-	if err := ps.saveToDisk(); err != nil {
+	ps.saveMu.Lock()
+	err := ps.saveToDisk()
+	ps.saveMu.Unlock()
+	if err != nil {
 		log.Printf("persist uploads (shutdown): %v", err)
 	}
 }
