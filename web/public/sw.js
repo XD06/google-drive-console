@@ -24,6 +24,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api") || url.pathname.startsWith("/oauth2")) return;
+  // Public direct links (/d/{token}) stream raw file bytes — they must never
+  // enter the SW cache: a revoked link would stay readable from the local
+  // cache and large files would blow the storage quota.
+  if (url.pathname.startsWith("/d/")) return;
   // Never cache Vite dev modules — cache-first here served stale source after
   // edits (the app kept running old code until the SW was unregistered).
   if (url.pathname.startsWith("/src/") || url.pathname.startsWith("/@")) return;
@@ -37,7 +41,7 @@ self.addEventListener("fetch", (event) => {
           void caches.open(CACHE).then((c) => c.put("/", copy));
           return res;
         })
-        .catch(() => caches.match("/") || caches.match("/index.html"))
+        .catch(() => caches.match("/").then((r) => r || caches.match("/index.html")))
     );
     return;
   }
