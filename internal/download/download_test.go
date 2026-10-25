@@ -1,6 +1,8 @@
 package download
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -425,4 +427,90 @@ func TestStoreDeleteExpired(t *testing.T) {
 			t.Errorf("%s was removed but should have been kept", id)
 		}
 	}
+}
+
+// ---- Per-job temp-dir isolation (download artifacts live in TmpDir/<jobID>) ----
+
+func TestJobCfgPerJobTmpDir(t *testing.T) {
+	root := t.TempDir()
+	svc := &Service{YtDlp: YtDlpConfig{BinPath: "yt-dlp", Proxy: "socks5://p", TmpDir: root}}
+
+	j := mkTestJob("dl_abc123", "https://x/1", StatusDownloading, 0)
+	cfg := svc.jobCfg(j)
+
+	if cfg.TmpDir != filepath.Join(root, "dl_abc123") {
+		t.Errorf("jobCfg TmpDir = %q, want %q", cfg.TmpDir, filepath.Join(root, "dl_abc123"))
+	}
+	// Other fields must be preserved...
+	if cfg.BinPath != "yt-dlp" || cfg.Proxy != "socks5://p" {
+		t.Errorf("jobCfg dropped config fields: %+v", cfg)
+	}
+	// ...and the original config must be untouched (copy, not pointer).
+	if svc.YtDlp.TmpDir != root {
+		t.Errorf("jobCfg mutated the original config: %q", svc.YtDlp.TmpDir)
+	}
+}
+
+func TestServiceDeleteRemovesJobTmpDir(t *testing.T) {
+	root := t.TempDir()
+	jobDir := filepath.Join(root, "dl_del1")
+	if err := os.MkdirAll(jobDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	part := filepath.Join(jobDir, "video.mp4.part")
+	if err := os.WriteFile(part, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewStore()
+	s.Put(mkTestJob("dl_del1", "https://x/1", StatusCompleted, 0))
+	svc := &Service{Store: s, YtDlp: YtDlpConfig{TmpDir: root}}
+
+	if err := svc.Delete("dl_del1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := os.Stat(jobDir); !os.IsNotExist(err) {
+		t.Errorf("job temp dir still exists after Delete: %v", err)
+	}
+	if _, err := s.Get("dl_del1"); err == nil {
+		t.Error("job record should be removed from the store")
+	}
+}
+
+func TestPersistentStoreFileCleanupHook(t *testing.T) {
+	ps := NewPersistentStore(filepath.Join(t.TempDir(), "downloads.json"))
+	ps.CacheTTL = time.Hour
+	ps.TerminalTTL = 30 * time.Minute
+
+	var cleaned []string
+	ps.FileCleanup = func(id string) { cleaned = append(cleaned, id) }
+
+	ps.Put(mkTestJob("hook-expired", "u1", StatusCompleted, 2*time.Hour))
+	ps.Put(mkTestJob("hook-kept", "u2", StatusCompleted, time.Minute))
+	ps.Put(mkTestJob("hook-deleted", "u3", StatusFailed, 0))
+
+	if n := ps.DeleteExpired(); n != 1 {
+		t.Fatalf("DeleteExpired removed %d, want 1", n)
+	}
+	ps.Delete("hook-deleted")
+	ps.SaveNow() // flush the debounced write before the temp dir vanishes
+
+	if len(cleaned) != 2 || cleaned[0] != "hook-expired" || cleaned[1] != "hook-deleted" {
+		t.Fatalf("FileCleanup invoked with %v, want [hook-expired hook-deleted]", cleaned)
+	}
+	if _, err := ps.Get("hook-kept"); err != nil {
+		t.Error("hook-kept should still exist")
+	}
+}
+
+func TestPersistentStoreNoCleanupHookByDefault(t *testing.T) {
+	ps := NewPersistentStore(filepath.Join(t.TempDir(), "downloads.json"))
+	if ps.FileCleanup != nil {
+		t.Fatal("FileCleanup should default to nil")
+	}
+	// nil hook must not panic on the delete paths.
+	ps.Put(mkTestJob("no-hook", "u", StatusFailed, 0))
+	ps.Delete("no-hook")
+	ps.DeleteExpired()
+	ps.SaveNow()
 }

@@ -69,6 +69,16 @@ func (s *Service) cacheTTL() time.Duration {
 	return DefaultCacheTTL
 }
 
+// jobCfg returns a per-job YtDlpConfig: a copy of s.YtDlp with TmpDir pointed
+// at a job-specific subdirectory. Isolating concurrent jobs keeps yt-dlp's
+// largest-media fallback (scanDirForLargestMedia) from picking up another
+// job's finished file.
+func (s *Service) jobCfg(j *Job) YtDlpConfig {
+	cfg := s.YtDlp
+	cfg.TmpDir = filepath.Join(s.YtDlp.TmpDir, j.ID)
+	return cfg
+}
+
 // CreateInput is POST /api/downloads body.
 type CreateInput struct {
 	URL      string `json:"url"`
@@ -290,20 +300,26 @@ func (s *Service) Delete(id string) error {
 		os.Remove(filePath)
 	}
 	s.removePartFile(j)
+	// Remove the per-job temp directory (new layout). Old flat-layout files
+	// are still covered by the absolute-path removal above.
+	if s.YtDlp.TmpDir != "" {
+		os.RemoveAll(filepath.Join(s.YtDlp.TmpDir, id))
+	}
 
 	s.Store.Delete(id)
 	return nil
 }
 
 // removePartFile deletes the yt-dlp partial download for a job (derived from
-// the output template: tmpDir/<safe title>.<ext>.part), if any. Pause keeps
-// the file — only explicit record removal cleans it up.
+// the output template: tmpDir/<jobID>/<safe title>.<ext>.part), if any. Pause
+// keeps the file — only explicit record removal cleans it up. Jobs created
+// before per-job isolation kept .part files flat in TmpDir, so both layouts
+// are tried for reloaded old records.
 func (s *Service) removePartFile(j *Job) {
 	j.mu.RLock()
 	title, ext, rawURL := j.Title, j.Ext, j.URL
 	j.mu.RUnlock()
-	dir := s.YtDlp.TmpDir
-	if title == "" || dir == "" {
+	if title == "" || s.YtDlp.TmpDir == "" {
 		return
 	}
 	safe := sanitizeFilename(title)
@@ -313,11 +329,17 @@ func (s *Service) removePartFile(j *Job) {
 	if ext == "" || ext == "unknown_video" {
 		ext = guessExt(rawURL)
 	}
-	os.Remove(filepath.Join(dir, safe+"."+ext+".part"))
-	// yt-dlp merges formats into a different extension sometimes.
-	if leftovers, _ := filepath.Glob(filepath.Join(dir, safe+".*.part")); len(leftovers) > 0 {
-		for _, p := range leftovers {
-			os.Remove(p)
+	dirs := []string{
+		filepath.Join(s.YtDlp.TmpDir, j.ID), // new per-job layout
+		s.YtDlp.TmpDir,                      // legacy flat layout
+	}
+	for _, dir := range dirs {
+		os.Remove(filepath.Join(dir, safe+"."+ext+".part"))
+		// yt-dlp merges formats into a different extension sometimes.
+		if leftovers, _ := filepath.Glob(filepath.Join(dir, safe+".*.part")); len(leftovers) > 0 {
+			for _, p := range leftovers {
+				os.Remove(p)
+			}
 		}
 	}
 }
@@ -524,10 +546,19 @@ func (s *Service) runFromDownload(jobID string, meta metaInfo) {
 	j.setStatus(StatusDownloading)
 	s.Store.Put(j)
 
+	// Per-job temp directory: concurrent downloads must not share TmpDir, or
+	// the largest-media fallback could adopt another job's finished file.
+	cfg := s.jobCfg(j)
+	if err := os.MkdirAll(cfg.TmpDir, 0o700); err != nil {
+		j.setError("create job temp dir: " + err.Error())
+		s.Store.Put(j)
+		return
+	}
+
 	var result *DownloadResult
 	var dlErr error
 	for attempt := 1; attempt <= maxDownloadAttempts; attempt++ {
-		result, dlErr = DownloadWithMeta(dlCtx, s.YtDlp, j.URL, meta, func(proc *os.Process) {
+		result, dlErr = DownloadWithMeta(dlCtx, cfg, j.URL, meta, func(proc *os.Process) {
 			j.SetProcess(proc)
 		}, func(pct float64, speed, eta string, downloaded, total int64) {
 			j.setProgress(pct, speed, eta, downloaded, total)

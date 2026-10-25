@@ -15,10 +15,16 @@ type PersistentStore struct {
 	*Store
 	path     string
 	mu       sync.Mutex
+	saveMu   sync.Mutex // serializes disk writes so concurrent flushes can't interleave the .tmp file
 	timer    *time.Timer
 	dirty    bool
 	reaperCh chan struct{}
 	reaperWg sync.WaitGroup
+
+	// FileCleanup, when non-nil, is invoked with the id of each job whose
+	// record is removed (Delete / DeleteExpired / reaper) so the caller can
+	// clean up the job's temp directory. It must not block for long.
+	FileCleanup func(jobID string)
 
 	// CacheTTL keeps completed jobs (URL→Drive dedupe cache) this long.
 	// Zero means DefaultCacheTTL.
@@ -61,15 +67,54 @@ func (ps *PersistentStore) Put(j *Job) {
 func (ps *PersistentStore) Delete(id string) {
 	ps.Store.Delete(id)
 	ps.scheduleSave()
+	if ps.FileCleanup != nil {
+		ps.FileCleanup(id)
+	}
+}
+
+// expiredIDs lists the ids of terminal jobs past the given TTLs. Store.
+// DeleteExpired only returns a count, so this snapshot gives the FileCleanup
+// hook the ids that are about to be reaped.
+func (ps *PersistentStore) expiredIDs(doneTTL, otherTTL time.Duration) []string {
+	now := time.Now().UTC()
+	var ids []string
+	for _, snap := range ps.Store.List() {
+		if !isTerminal(snap.Status) {
+			continue
+		}
+		ttl := otherTTL
+		if snap.Status == StatusCompleted {
+			ttl = doneTTL
+		}
+		if now.Sub(snap.UpdatedAt) > ttl {
+			ids = append(ids, snap.ID)
+		}
+	}
+	return ids
+}
+
+// runFileCleanup invokes FileCleanup for each id that is no longer in the
+// store (i.e. it was actually removed). Errors are the hook's own concern.
+func (ps *PersistentStore) runFileCleanup(ids []string) {
+	if ps.FileCleanup == nil {
+		return
+	}
+	for _, id := range ids {
+		if _, err := ps.Store.Get(id); err != nil {
+			ps.FileCleanup(id)
+		}
+	}
 }
 
 // DeleteExpired removes terminal jobs past their per-status TTL: completed
 // jobs live for the cache TTL (URL dedupe cache), failed/cancelled jobs for
 // the shorter terminal TTL.
 func (ps *PersistentStore) DeleteExpired() int {
+	ids := ps.expiredIDs(ps.cacheTTL(), ps.terminalTTL())
 	n := ps.Store.DeleteExpired(ps.cacheTTL(), ps.terminalTTL())
 	if n > 0 {
 		ps.scheduleSave()
+		ps.runFileCleanup(ids)
 	}
 	return n
 }
@@ -96,8 +141,10 @@ func (ps *PersistentStore) StartReaperTTLs(interval, doneTTL, otherTTL time.Dura
 	ps.mu.Unlock()
 
 	reap := func() {
+		ids := ps.expiredIDs(doneTTL, otherTTL)
 		if n := ps.Store.DeleteExpired(doneTTL, otherTTL); n > 0 {
 			ps.scheduleSave()
+			ps.runFileCleanup(ids)
 			log.Printf("download reaper: removed %d terminal jobs (done>%s, other>%s)", n, doneTTL, otherTTL)
 		}
 	}
@@ -154,15 +201,25 @@ func (ps *PersistentStore) scheduleSave() {
 
 func (ps *PersistentStore) flush() {
 	ps.mu.Lock()
+	ps.timer = nil // let scheduleSave re-arm regardless of the outcome below
 	if !ps.dirty {
 		ps.mu.Unlock()
 		return
 	}
 	ps.dirty = false
-	ps.timer = nil
 	ps.mu.Unlock()
 
-	if err := ps.saveToDisk(); err != nil {
+	ps.saveMu.Lock()
+	err := ps.saveToDisk()
+	ps.saveMu.Unlock()
+	if err != nil {
+		// The changes were not written — mark dirty again and retry shortly.
+		ps.mu.Lock()
+		ps.dirty = true
+		if ps.timer == nil {
+			ps.timer = time.AfterFunc(time.Second, ps.flush)
+		}
+		ps.mu.Unlock()
 		log.Printf("persist downloads: %v", err)
 	}
 }
@@ -176,7 +233,10 @@ func (ps *PersistentStore) SaveNow() {
 	}
 	ps.dirty = false
 	ps.mu.Unlock()
-	if err := ps.saveToDisk(); err != nil {
+	ps.saveMu.Lock()
+	err := ps.saveToDisk()
+	ps.saveMu.Unlock()
+	if err != nil {
 		log.Printf("persist downloads (shutdown): %v", err)
 	}
 }

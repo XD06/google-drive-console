@@ -81,6 +81,12 @@ func main() {
 		}
 		downloadStore = download.NewPersistentStore(filepath.Join(cfg.DataDir, "downloads.json"))
 		downloadStore.CacheTTL = cfg.DownloadCacheTTL
+		// Reaped/deleted records must not leave per-job temp dirs behind.
+		downloadStore.FileCleanup = func(id string) {
+			if err := os.RemoveAll(filepath.Join(cfg.DownloadTmpDir, id)); err != nil {
+				log.Printf("download cleanup %s: %v", id, err)
+			}
+		}
 		downloadStore.StartReaperTTLs(10*time.Minute, cfg.DownloadCacheTTL, time.Hour)
 		log.Printf("download feature enabled: yt-dlp=%s tmpDir=%s cacheTTL=%s", cfg.YtDlpPath, cfg.DownloadTmpDir, cfg.DownloadCacheTTL)
 		if cfg.DownloadProxy != "" {
